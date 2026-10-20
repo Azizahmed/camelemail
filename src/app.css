@@ -1,0 +1,414 @@
+/* Arabic letters come from Noto Sans Arabic with OpenType mark positioning
+   off ("Remail Arabic", Arabic code points only, so English text keeps its font
+   and line metrics). WebKitGTK draws each run of glyphs at the vertical offset
+   of its first glyph, so with positioned marks a word ending in one (tanween:
+   "مرحباً") sat a few pixels above its neighbours. The marks' own placement
+   looks right without the feature, except some fully vowelled ligatures
+   (the shadda in "صَلَّى" can sit one letter off); email frames therefore keep
+   the feature and fix runs instead (fixFinalMarks in src/lib/bidi.ts).
+   WebKitGTK's local() takes family names
+   (it picks the file by weight). Keep in sync with ARABIC_FONT_FACES in
+   src/lib/bidi.ts (used inside email frames). */
+@font-face {
+  font-family: "Remail Arabic";
+  src: local("Noto Sans Arabic"), local("Noto Naskh Arabic"), local("Noto Kufi Arabic"), local("DejaVu Sans");
+  font-weight: 100 500;
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-08FF, U+FB50-FDFF, U+FE70-FEFC;
+  font-feature-settings: "mark" 0, "mkmk" 0;
+}
+@font-face {
+  font-family: "Remail Arabic";
+  src: local("Noto Sans Arabic"), local("Noto Naskh Arabic"), local("Noto Kufi Arabic"), local("DejaVu Sans");
+  font-weight: 600 900;
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-08FF, U+FB50-FDFF, U+FE70-FEFC;
+  font-feature-settings: "mark" 0, "mkmk" 0;
+}
+
+/* Remail design tokens. Light is the default; html[data-theme="dark"] switches. */
+:root {
+  --font-family: "Remail Arabic", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Cantarell", "Noto Sans", "Noto Sans Arabic", sans-serif;
+  --font-mono: "Remail Arabic", ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", monospace;
+
+  --content: #191919;
+  --content-subtle: #727272;
+  --content-muted: #9e9fa0;
+  --surface: #f9f9fb;
+  --surface-hover: #eaeaec;
+  --surface-active: #dadadc;
+  --surface-elevated: #fafafa;
+  --surface-elevated-hover: #e7e8e9;
+  --surface-overlay: #ffffff;
+  --canvas-subtle: #ffffff;
+  --surface-nav: #ffffff;
+  --surface-nav-hover: #f5f5f5;
+  --surface-nav-active: #e4e4e8;
+  --button-surface: #f0f0f0;
+  --button-surface-hover: #e6e6e9;
+  --overlay-50: #00000080;
+  --icon: #727272;
+  --icon-hover: #191919;
+  --separator: #d3d3d3;
+  --separator-subtle: #e8e8e8;
+  --border-tertiary: #bebebe;
+  --row-hover: linear-gradient(90deg, #f9f9fb 0%, #f1f2f4 2%, #f1f2f4 98%, #f9f9fb 100%);
+  --row-selected-tint: rgba(255, 124, 25, 0.09);
+  --unread-indicator: #ff7c19;
+  /* Brand: orange #FF7C19, charcoal #1A1E25 (assets/brand). Text-safe orange below. */
+  --accent: #e2600b;
+  --accent-hover: #c95409;
+  --accent-soft: rgba(255, 124, 25, 0.13);
+  --brand-charcoal: #1a1e25;
+  --surface-reading: #ffffff;
+  --interactive: #3b81f6;
+  --indicator-success: #1f9d3a;
+  --indicator-warning: #e8a317;
+  --indicator-error: #c4291c;
+  --draft-badge: #ff980026;
+  --draft-text: #b86e00;
+  --scheduled-badge: #00c66926;
+  --scheduled-text: #008a49;
+  --identity-blue: #0093ff;
+  --identity-gold: #c6a801;
+  --identity-green: #00c669;
+  --identity-magenta: #bf0162;
+  --identity-pink: #a72594;
+  --identity-teal: #009da7;
+  --identity-violet: #8b5cf6;
+  --shadow-dropdown: 0 12px 24px -3px rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-panel: 0 0 14px rgba(0, 0, 0, 0.08);
+  --mail-paper: #ffffff;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --fast: 0.1s ease;
+  --normal: 0.15s ease;
+  --slow: 0.2s ease;
+  --sidenav-width: 240px;
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  --content: #fafafa;
+  --content-subtle: #8f8f8f;
+  --content-muted: #5c5c5c;
+  --surface: #191a1a;
+  --surface-hover: #202023;
+  --surface-active: #29292c;
+  --surface-elevated: #2a2a2a;
+  --surface-elevated-hover: #323232;
+  --surface-overlay: #252525;
+  --canvas-subtle: #151616;
+  --surface-nav: #1d1e1e;
+  --surface-nav-hover: #242525;
+  --surface-nav-active: #2e2f30;
+  --button-surface: #303233;
+  --button-surface-hover: #383a3b;
+  --overlay-50: #00000099;
+  --icon: #888888;
+  --icon-hover: #fafafa;
+  --separator: #323436;
+  --separator-subtle: #2b2b2b;
+  --border-tertiary: #4a4a4a;
+  --row-hover: linear-gradient(90deg, #191a1a 0%, #202020 2%, #202020 98%, #191a1a 100%);
+  --row-selected-tint: rgba(255, 138, 61, 0.12);
+  --unread-indicator: #ff8a3d;
+  --accent: #ff8a3d;
+  --accent-hover: #ff9c5a;
+  --accent-soft: rgba(255, 138, 61, 0.16);
+  --surface-reading: #1e1f20;
+  --draft-text: #ffb547;
+  --scheduled-text: #3ddc8a;
+  --shadow-dropdown: 0 4px 24px rgba(0, 0, 0, 0.32);
+  --shadow-panel: 0 0 14px rgba(0, 0, 0, 0.3);
+  --mail-paper: #ffffff;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--surface);
+  color: var(--content);
+  font-family: var(--font-family);
+  font-size: 13px;
+  line-height: 17px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+body {
+  cursor: default;
+  user-select: none;
+}
+
+#app {
+  height: 100%;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: default;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+  color: var(--content);
+}
+
+a {
+  color: var(--accent);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--surface-active);
+  border-radius: 10px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------- shared controls ---------- */
+
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-lg);
+  border: none;
+  background: transparent;
+  color: var(--icon);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex: none;
+  transition: background var(--fast), color var(--fast);
+}
+.icon-btn:hover:not(:disabled) {
+  background: var(--surface-active);
+  color: var(--icon-hover);
+}
+.icon-btn:disabled {
+  opacity: 0.4;
+}
+.icon-btn.active {
+  color: var(--accent);
+}
+
+.btn {
+  height: 30px;
+  padding: 0 14px;
+  border-radius: var(--radius-lg);
+  border: 0.5px solid var(--separator);
+  background: var(--button-surface);
+  color: var(--content);
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: background var(--fast);
+}
+.btn:hover:not(:disabled) {
+  background: var(--button-surface-hover);
+}
+.btn:disabled {
+  opacity: 0.5;
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+}
+.btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.btn.danger {
+  color: var(--indicator-error);
+}
+.btn.pill {
+  border-radius: 999px;
+  padding: 7px 14px;
+  height: auto;
+  font-size: 14px;
+  line-height: 18px;
+  font-weight: 400;
+  color: var(--content-subtle);
+  background: transparent;
+}
+.btn.pill:hover {
+  color: var(--content);
+  background: var(--surface-hover);
+}
+
+.input {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--separator);
+  background: var(--canvas-subtle);
+  outline: none;
+  width: 100%;
+  user-select: text;
+}
+.input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--separator);
+  background: var(--surface-hover);
+  font-family: var(--font-family);
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--content-subtle);
+}
+
+.menu {
+  position: fixed;
+  z-index: 400;
+  min-width: 200px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--surface-elevated);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-dropdown);
+  padding: 6px;
+  animation: pop 0.12s ease;
+}
+.menu-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--content-muted);
+  padding: 6px 8px 4px;
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 8px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  text-align: left;
+  color: var(--content);
+}
+.menu-item:hover,
+.menu-item.selected {
+  background: var(--surface-elevated-hover);
+}
+.menu-item .detail {
+  margin-left: auto;
+  color: var(--content-subtle);
+  font-size: 12px;
+}
+.menu-sep {
+  height: 1px;
+  background: var(--separator-subtle);
+  margin: 4px 2px;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay-50);
+  z-index: 300;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  animation: fade 0.15s ease;
+}
+.modal {
+  background: var(--surface-elevated);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-dropdown);
+  width: min(92vw, 560px);
+  max-height: 76vh;
+  overflow: auto;
+  animation: slideUp 0.2s ease;
+}
+.modal-header {
+  font-size: 16px;
+  font-weight: 600;
+  padding: 18px 20px 6px;
+}
+.modal-body {
+  padding: 8px 20px 16px;
+  color: var(--content-subtle);
+  font-size: 13px;
+  line-height: 19px;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 20px 18px;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--separator);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+  flex: none;
+}
+
+.selectable {
+  user-select: text;
+  cursor: text;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}

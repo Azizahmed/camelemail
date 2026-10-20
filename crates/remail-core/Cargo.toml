@@ -1,0 +1,48 @@
+[package]
+name = "remail-core"
+description = "Mail engine for Remail: IMAP sync, SMTP send, local SQLite store, snooze and send-later"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+async-imap = { version = "0.12", default-features = false, features = ["runtime-tokio"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-native-certs = "0.8"
+webpki-roots = "1"
+futures = "0.3"
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls", "rustls-native-certs", "ring", "hostname"] }
+mail-parser = "0.11"
+rusqlite = { version = "0.37", features = ["bundled", "functions"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+tokio-util = "0.7"
+axum = { version = "0.8", default-features = false, features = ["tokio", "http1"] }
+dirs = "7"
+iana-time-zone = "0.1"
+chrono-tz = "0.10"
+roxmltree = "0.20"
+ammonia = "4"
+html2text = "0.15"
+# Each system's own password store: Secret Service on Linux, Credential Manager on Windows, Keychain on macOS.
+keyring = { version = "3", features = ["linux-native-sync-persistent", "crypto-rust", "windows-native", "apple-native"] }
+regex = "1"
+once_cell = "1"
+base64 = "0.22"
+ring = "0.17"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+axum = { version = "0.8", default-features = false, features = ["tokio", "http1", "json"] }
