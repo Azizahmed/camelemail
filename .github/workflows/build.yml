@@ -10,6 +10,10 @@ on:
   push:
     tags: ["v*"]
 
+# Tag builds put the installers on a draft release.
+permissions:
+  contents: write
+
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
