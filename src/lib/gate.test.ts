@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractToken, gateScreen, olderThan, windowReady } from "./gate";
+import { extractToken, gateScreen, isInviteToken, olderThan, windowReady } from "./gate";
 import type { CloudPhase, CloudStatus } from "./types";
 
 const status = (phase: CloudPhase): CloudStatus => ({
@@ -65,5 +65,13 @@ describe("versions", () => {
     expect(olderThan("1.0.0", "1.0.0")).toBe(false);
     expect(olderThan("1.2", "1.1.9")).toBe(false);
     expect(olderThan("v1.0.0-beta.1", "1.0.1")).toBe(true);
+  });
+});
+
+describe("isInviteToken", () => {
+  it("tells invitation codes from confirmation codes", () => {
+    expect(isInviteToken("inv_cq4aTN1ZoNWt")).toBe(true);
+    expect(isInviteToken("vfy_abc")).toBe(false);
+    expect(isInviteToken("")).toBe(false);
   });
 });

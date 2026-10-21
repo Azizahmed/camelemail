@@ -34,6 +34,8 @@
   let unreachable = $state(false);
   let appVersion = $state<string | null>(null);
   let email = $state("");
+  /** An invitation code pasted on the confirmation screen, for sign-up. */
+  let inviteCode = $state("");
   let notice = $state("");
   let challenge = $state("");
   /** Kept in memory only, to sign in right after the e-mail is confirmed. */
@@ -174,9 +176,19 @@
     onback={() => go("welcome")}
   />
 {:else if screen === "signup"}
-  <SignUp {meta} bind:email oncreated={created} onsignin={() => go("signin")} onback={() => go("welcome")} />
+  {#key inviteCode}
+    <SignUp {meta} bind:email invite={inviteCode} oncreated={created} onsignin={() => go("signin")} onback={() => go("welcome")} />
+  {/key}
 {:else if screen === "verify"}
-  <VerifyEmail {email} onverified={verified} onsignin={() => go("signin")} />
+  <VerifyEmail
+    {email}
+    onverified={verified}
+    onsignin={() => go("signin")}
+    oninvite={(code) => {
+      inviteCode = code;
+      go("signup");
+    }}
+  />
 {:else if screen === "signin"}
   <SignIn {meta} bind:email {notice} onlogin={login} oncreate={() => go("signup")} onforgot={() => go("reset")} onback={() => go("welcome")} />
 {:else if screen === "twofa"}
