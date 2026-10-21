@@ -1,6 +1,7 @@
-# Production image for remail-server, for hosting platforms that build from the
-# repository (build context = repository root, Dockerfile path =
-# deploy/server/Dockerfile). TLS is the platform's job.
+# Production image for remail-server (the desktop app isn't built here), for
+# hosting platforms that build from the repository. It sits at the repository
+# root because platforms use the Dockerfile's folder as the build context.
+# TLS is the platform's job. See deploy/server/README.md.
 #
 # The master key never comes from the image: set the REMAIL_MASTER_KEY secret
 # (base64 of the key file) or mount a key file at REMAIL_MASTER_KEY_FILE.

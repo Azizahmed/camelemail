@@ -3,11 +3,15 @@
 
 use super::CloudError;
 
-/// Server the build points at (`REMAIL_SERVER` at build time). Debug builds
-/// fall back to a local development server.
+/// The hosted Remail service (deploy/server/README.md).
+pub const HOSTED_SERVER: &str = "https://remail-63jemz.cranl.net";
+
+/// Server the build points at: `REMAIL_SERVER` at build time (branded and
+/// on-prem builds), else the hosted service. Debug builds use a local
+/// development server instead.
 pub fn default_server() -> Option<String> {
     let built = option_env!("REMAIL_SERVER").map(str::trim).filter(|s| !s.is_empty()).map(String::from);
-    built.or_else(|| cfg!(debug_assertions).then(|| "http://localhost:8080".to_string()))
+    built.or_else(|| Some(if cfg!(debug_assertions) { "http://localhost:8080" } else { HOSTED_SERVER }.to_string()))
 }
 
 /// Where organisation codes are looked up (`REMAIL_ORG_DIRECTORY` at build

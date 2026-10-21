@@ -1,12 +1,16 @@
 # Hosting remail-server on a platform (CranL, or any Docker host)
 
+The hosted service runs on CranL (project **Remail**, application `remail`, region Riyadh) at
+`https://remail-63jemz.cranl.net`, with a CranL PostgreSQL database (`remail-db`) in the same region.
+Release builds of the app use that address unless they're built with `REMAIL_SERVER`.
+
 The platform builds the image from this repository:
 
 | Setting | Value |
 |---|---|
 | Repository / branch | `Azizahmed/camelemail`, `main` |
 | Root directory | `/` |
-| Build type | Dockerfile, path `deploy/server/Dockerfile` |
+| Build type | Dockerfile, path `Dockerfile` (the repository root; platforms build in the Dockerfile's folder) |
 | Port | `8080` |
 
 It also needs a PostgreSQL database (16 or newer).
