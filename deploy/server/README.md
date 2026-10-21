@@ -1,14 +1,24 @@
 # Hosting remail-server on a platform (CranL, or any Docker host)
 
-The hosted service runs on CranL (project **Remail**, application `remail`, region Riyadh) at
-`https://remail-63jemz.cranl.net`, with a CranL PostgreSQL database (`remail-db`) in the same region.
+The hosted service runs on CranL (project **Remail**, application `remail-server`, region Riyadh) at
+`https://remail-server-nzymau.cranl.net`, with a CranL PostgreSQL database (`remail-db`) in the same region.
 Release builds of the app use that address unless they're built with `REMAIL_SERVER`.
 
-The platform builds the image from this repository:
+The image is built on GitHub, not on the platform:
+
+1. A push to `main` that touches the server (`crates/remail-server`, `crates/remail-proto`,
+   `Cargo.toml`, `Cargo.lock` or `deploy/server/build.Dockerfile`) runs
+   `.github/workflows/server-image.yml`. It builds `deploy/server/build.Dockerfile` and pushes
+   `ghcr.io/azizahmed/remail-server` (tags `latest` and the commit SHA).
+2. The workflow then pins the one-line root `Dockerfile` (`FROM ghcr.io/azizahmed/remail-server@sha256:…`)
+   to the new image and commits that to `main`.
+3. In CranL, click **Deploy**. CranL doesn't deploy on push; it pulls the pinned image in seconds.
+
+CranL application settings:
 
 | Setting | Value |
 |---|---|
-| Repository / branch | `Azizahmed/camelemail`, `main` |
+| Repository / branch | `Azizahmed/camelemail`, `main` (public repository) |
 | Root directory | `/` |
 | Build type | Dockerfile, path `Dockerfile` (the repository root; platforms build in the Dockerfile's folder) |
 | Port | `8080` |

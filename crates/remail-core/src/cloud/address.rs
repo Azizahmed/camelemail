@@ -4,7 +4,7 @@
 use super::CloudError;
 
 /// The hosted Remail service (deploy/server/README.md).
-pub const HOSTED_SERVER: &str = "https://remail-63jemz.cranl.net";
+pub const HOSTED_SERVER: &str = "https://remail-server-nzymau.cranl.net";
 
 /// Server the build points at: `REMAIL_SERVER` at build time (branded and
 /// on-prem builds), else the hosted service. Debug builds use a local

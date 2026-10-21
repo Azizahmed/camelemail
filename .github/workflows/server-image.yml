@@ -7,7 +7,9 @@ on:
   push:
     branches: [main]
     paths:
-      - "crates/**"
+      # The server and what it's built from; app-only changes don't rebuild it.
+      - "crates/remail-server/**"
+      - "crates/remail-proto/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "deploy/server/build.Dockerfile"
