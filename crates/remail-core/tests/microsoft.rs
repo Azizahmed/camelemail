@@ -35,9 +35,7 @@ async fn microsoft_sign_in() {
     // Without an app (client) ID, it says what's missing.
     let none = engine.add_microsoft_account(|_| Ok(()), req()).await.unwrap_err().to_string();
     assert!(none.contains("client) ID"), "{none}");
-    let mut settings = engine.settings();
-    settings.microsoft_client_id = " client-123 ".into();
-    engine.set_settings(&settings).unwrap();
+    engine.set_org(microsoft_org());
 
     // Sign in: PKCE checked by the mock, XOAUTH2 by the fake servers.
     let added = engine.add_microsoft_account(browser(idp.clone(), "code-1"), req()).await.unwrap();
@@ -60,6 +58,7 @@ async fn microsoft_sign_in() {
     idp.lock().unwrap().refresh.insert("rt-1".into(), ("at-2".into(), "rt-2".into()));
     accepted.lock().unwrap().push("at-2".into());
     let engine = Engine::with_store(Store::open(&dir.path().join("remail.db")).unwrap(), secrets.clone(), Arc::new(Quiet)).unwrap();
+    engine.set_org(microsoft_org());
     let account = engine.accounts().unwrap().into_iter().find(|a| a.id == id).unwrap();
     assert_eq!(account.auth, "microsoft", "survives a restart");
     let changed = NewAccount { email: account.email.clone(), display_name: "Aziz A".into(), username: String::new(), password: String::new(), imap: imap.clone(), smtp: smtp.clone(), allow_invalid_certs: false };
@@ -71,6 +70,7 @@ async fn microsoft_sign_in() {
     // The sign-in is revoked: the next refresh says to sign in again.
     drop(engine);
     let engine = Engine::with_store(Store::open(&dir.path().join("remail.db")).unwrap(), secrets.clone(), Arc::new(Quiet)).unwrap();
+    engine.set_org(microsoft_org());
     let account = engine.accounts().unwrap().into_iter().find(|a| a.id == id).unwrap();
     let again = NewAccount { email: account.email.clone(), display_name: "Aziz".into(), username: String::new(), password: String::new(), imap: imap.clone(), smtp: smtp.clone(), allow_invalid_certs: false };
     let expired = engine.update_account(&id, again).await.unwrap_err();

@@ -16,6 +16,13 @@ use tokio::net::TcpListener;
 
 pub const CALENDAR_SCOPE: &str = "https://graph.microsoft.com/Calendars.ReadWrite";
 
+/// An organisation whose Microsoft sign-in uses the mock's app id.
+pub fn microsoft_org() -> Option<remail_core::engine::OrgAccess> {
+    let mut providers = remail_core::proto::org::Providers::default();
+    providers.microsoft_app.client_id = " client-123 ".into();
+    Some(remail_core::engine::OrgAccess { providers, google_server_exchange: false })
+}
+
 pub struct Quiet;
 impl EventSink for Quiet {
     fn emit(&self, _: EngineEvent) {}
@@ -220,6 +227,57 @@ pub fn browser_declining_calendar(idp: Shared, code: &'static str, email: &'stat
         let redirect = format!("{}?error=access_denied&error_description=AADSTS65004%3A+User+declined+to+consent+to+access+the+app.&state={}", q["redirect_uri"], q["state"]);
         tokio::spawn(async move {
             let _ = reqwest::get(&redirect).await;
+        });
+        Ok(())
+    }
+}
+
+pub mod server;
+
+pub fn google_id_token(email: &str, sub: &str) -> String {
+    let claims = format!(r#"{{"email":"{email}","email_verified":true,"sub":"{sub}","name":"Me"}}"#);
+    format!("{}.{}.sig", b64url(br#"{"alg":"none"}"#), b64url(claims.as_bytes()))
+}
+
+/// Google's token endpoint: PKCE-checked codes, and refreshes (which name no scope).
+pub async fn google_token(State(s): State<Shared>, body: String) -> Response {
+    let form: HashMap<String, String> = reqwest::Url::parse(&format!("http://x/?{body}")).unwrap().query_pairs().into_owned().collect();
+    let mut idp = s.lock().unwrap();
+    idp.token_requests.push((form["grant_type"].clone(), form.get("scope").cloned().unwrap_or_default()));
+    assert_eq!(form["client_id"], "gclient");
+    let err = |code: &str| (axum::http::StatusCode::BAD_REQUEST, axum::Json(serde_json::json!({"error": code, "error_description": code}))).into_response();
+    match form["grant_type"].as_str() {
+        "authorization_code" => {
+            let Some((challenge, email, sub, _)) = idp.codes.remove(&form["code"]) else { return err("invalid_grant") };
+            if b64url(&ring_digest(form["code_verifier"].as_bytes())) != challenge {
+                return err("invalid_grant");
+            }
+            axum::Json(serde_json::json!({
+                "access_token": "gat-1", "refresh_token": "grt-1", "expires_in": 3600, "id_token": google_id_token(&email, &sub),
+            }))
+            .into_response()
+        }
+        "refresh_token" if form.contains_key("scope") => err("invalid_scope"),
+        "refresh_token" => match idp.refresh.get(&form["refresh_token"]).cloned() {
+            Some((access, _)) => axum::Json(serde_json::json!({"access_token": access, "expires_in": 3600})).into_response(),
+            None => err("invalid_grant"),
+        },
+        _ => err("unsupported_grant_type"),
+    }
+}
+
+/// Stands in for the browser on Google's consent page.
+pub fn google_browser(idp: Shared, code: &'static str, email: &'static str, sub: &'static str) -> impl Fn(&str) -> anyhow::Result<()> {
+    move |url: &str| {
+        let q: HashMap<String, String> = reqwest::Url::parse(url)?.query_pairs().into_owned().collect();
+        assert_eq!(q["code_challenge_method"], "S256");
+        assert_eq!(q["scope"], remail_core::oauth::GOOGLE_SCOPE);
+        assert_eq!((q["access_type"].as_str(), q["prompt"].as_str()), ("offline", "consent"));
+        idp.lock().unwrap().codes.insert(code.to_string(), (q["code_challenge"].clone(), email.to_string(), sub.to_string(), true));
+        let redirect = format!("{}?code={code}&state={}", q["redirect_uri"], q["state"]);
+        tokio::spawn(async move {
+            let page = reqwest::get(&redirect).await.unwrap().text().await.unwrap();
+            assert!(page.contains("signed in"), "{page}");
         });
         Ok(())
     }

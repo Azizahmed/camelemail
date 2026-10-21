@@ -7,7 +7,7 @@
 //! new mail lands. Two engine-wide loops deliver the outbox (undo send / send
 //! later) and wake snoozed threads.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
@@ -23,6 +23,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::ai::{self, AiSettings};
 use crate::assistant::{self, ChatEvent};
+use crate::cloud::CloudError;
 use crate::compose;
 use crate::imap::{self, ImapConn};
 use crate::mcp::client::{McpHub, McpServerConfig, McpTransport};
@@ -36,6 +37,8 @@ use crate::secrets::SecretStore;
 use crate::smtp::{self, SendError};
 use crate::store::{new_id, now_ms, Store};
 use crate::sync::{self, ServerOp};
+use remail_proto::org::{ProviderKind as OrgKind, Providers};
+use remail_proto::sections;
 
 /// Receives engine events (the desktop shell forwards them to the UI).
 pub trait EventSink: Send + Sync + 'static {
@@ -80,48 +83,84 @@ pub struct AppSettings {
     pub notify_important_only: bool,
     pub auto_clean: AutoClean,
     pub calendar: crate::calendar::CalendarPrefs,
-    /// App (client) ID of the Microsoft Entra app used for "Sign in with
-    /// Microsoft". Empty: the one Remail was built with, if any.
-    pub microsoft_client_id: String,
-    /// Admin: which email providers accounts may be added for.
-    pub providers: ProviderAccess,
+    /// `en` | `ar` | `system`.
+    pub language: String,
+    // The email providers and the Microsoft app id used to live here; they
+    // come from the organisation now (`OrgAccess`). Old values are ignored.
 }
 
-/// Admin setting: the email providers people may connect.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct ProviderAccess {
-    pub gmail: bool,
-    /// Outlook.com, Hotmail, Live, MSN and Microsoft 365.
-    pub outlook: bool,
-    /// Every other IMAP/SMTP provider or server.
-    pub other: bool,
+/// What the engine needs from the Remail server connection (`cloud::Cloud`
+/// installs it).
+pub trait CloudLink: Send + Sync {
+    /// Local setup in `section` changed: sync it soon.
+    fn mark_dirty(&self, section: &str);
+    /// Trade a Google sign-in code through the server, which holds the client secret.
+    fn google_exchange(&self, req: remail_proto::api::GoogleExchange) -> futures::future::BoxFuture<'static, Result<remail_proto::api::GoogleTokens>>;
+    /// Refresh a Google sign-in through the server (same client secret).
+    fn google_refresh(&self, refresh_token: String) -> futures::future::BoxFuture<'static, Result<remail_proto::api::GoogleTokens>>;
 }
 
-impl Default for ProviderAccess {
-    fn default() -> Self {
-        Self { gmail: true, outlook: true, other: true }
+/// The organisation's email providers, as the engine enforces them when
+/// mailboxes are added (the server checks again when they sync).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct OrgAccess {
+    pub providers: Providers,
+    /// Google codes are exchanged by the server (it has the client secret).
+    pub google_server_exchange: bool,
+}
+
+/// Which provider an account belongs to, for the allow-list.
+pub fn account_provider(email: &str, imap_host: &str, auth: &str) -> OrgKind {
+    match auth {
+        oauth::GOOGLE => OrgKind::Google,
+        oauth::MICROSOFT => OrgKind::Microsoft,
+        _ => match presets::provider_kind(email, imap_host) {
+            presets::ProviderKind::Gmail => OrgKind::Google,
+            presets::ProviderKind::Outlook => OrgKind::Microsoft,
+            presets::ProviderKind::Other => OrgKind::Imap,
+        },
     }
 }
 
-impl ProviderAccess {
-    pub fn allows(&self, kind: crate::presets::ProviderKind) -> bool {
-        use crate::presets::ProviderKind::*;
-        match kind {
-            Gmail => self.gmail,
-            Outlook => self.outlook,
-            Other => self.other,
-        }
-    }
-}
-
-fn not_allowed(kind: crate::presets::ProviderKind) -> anyhow::Error {
+fn not_allowed(kind: OrgKind) -> anyhow::Error {
     let what = match kind {
-        crate::presets::ProviderKind::Other => "Accounts from other providers".to_string(),
-        k => format!("{} accounts", k.name()),
+        OrgKind::Google => "Google accounts",
+        OrgKind::Microsoft => "Microsoft accounts",
+        OrgKind::Imap => "Accounts from this provider",
     };
-    anyhow::anyhow!("{what} aren't allowed in Remail. They can be turned on in Settings → Admin.")
+    CloudError::new("provider_not_allowed", format!("{what} aren't allowed by your organisation.")).into()
 }
+
+/// Window and sidebar choices that follow the user (they lived in the
+/// webview's localStorage before the Remail server).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct UiPrefs {
+    /// Action id → key bindings.
+    pub shortcuts: BTreeMap<String, Vec<String>>,
+    /// Hidden sidebar entries (`SPAM`, `folder:<account>:<label>`); None = never chosen.
+    pub sidebar_hidden: Option<Vec<String>>,
+    pub last_compose_account: Option<String>,
+}
+
+/// A partial `UiPrefs`: a missing key keeps its value, `null` clears it.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct UiPrefsPatch {
+    pub shortcuts: Option<BTreeMap<String, Vec<String>>>,
+    #[serde(deserialize_with = "present")]
+    pub sidebar_hidden: Option<Option<Vec<String>>>,
+    #[serde(deserialize_with = "present")]
+    pub last_compose_account: Option<Option<String>>,
+}
+
+/// `Some(value)` for a key that is present, even when it's `null`.
+fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) -> std::result::Result<Option<T>, D::Error> {
+    T::deserialize(d).map(Some)
+}
+
+/// Settings key of `UiPrefs`.
+pub(crate) const UI_PREFS: &str = "ui";
 
 /// Remove read mail of chosen kinds from the Inbox automatically.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -177,8 +216,7 @@ impl Default for AppSettings {
             notify_important_only: false,
             auto_clean: AutoClean::default(),
             calendar: Default::default(),
-            microsoft_client_id: String::new(),
-            providers: ProviderAccess::default(),
+            language: "system".into(),
         }
     }
 }
@@ -271,6 +309,10 @@ pub struct AttachmentData {
 
 /// User-facing explanation for connection/login failures.
 pub fn friendly_error(e: &anyhow::Error) -> String {
+    // `cloud:<code>:<message>`: the UI translates the code.
+    if let Some(c) = e.chain().find_map(|c| c.downcast_ref::<CloudError>()) {
+        return c.to_string();
+    }
     if let Some(s) = e.downcast_ref::<oauth::SignInRequired>() {
         return s.0.clone();
     }
@@ -338,6 +380,15 @@ pub(crate) struct Inner {
     oauth_refresh: tokio::sync::Mutex<()>,
     /// Cancels a sign-in that is waiting for the browser.
     oauth_cancel: Mutex<Option<CancellationToken>>,
+    /// Set while mail may run (signed in to Remail): account workers and the
+    /// schedulers live under it, and cancelling it stops them.
+    gate: Mutex<Option<CancellationToken>>,
+    /// Accounts whose worker has started a sync since the gate opened.
+    sync_started: Mutex<HashSet<String>>,
+    /// The Remail server connection, when there is one.
+    link: Mutex<Option<Weak<dyn CloudLink>>>,
+    /// The organisation's providers; None = no organisation (tests, local use).
+    org: Mutex<Option<OrgAccess>>,
     /// One server save at a time per draft (by draft id), so two saves can't
     /// both replace the same previous copy.
     draft_saves: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
@@ -401,11 +452,26 @@ impl Engine {
     /// Open the database in `data_dir` and start background work. Must be
     /// called from inside a tokio runtime.
     pub fn start(data_dir: PathBuf, secrets: Arc<dyn SecretStore>, sink: Arc<dyn EventSink>) -> Result<Engine> {
+        let engine = Self::start_locked(data_dir, secrets, sink)?;
+        engine.open_gate()?;
+        Ok(engine)
+    }
+
+    /// Open the database without starting any mail: no account workers and
+    /// no schedulers until `open_gate` (the desktop app waits for the Remail
+    /// sign-in).
+    pub fn start_locked(data_dir: PathBuf, secrets: Arc<dyn SecretStore>, sink: Arc<dyn EventSink>) -> Result<Engine> {
         let store = Store::open(&data_dir.join("remail.db"))?;
         Self::build(store, secrets, sink, Some(data_dir))
     }
 
     pub fn with_store(store: Store, secrets: Arc<dyn SecretStore>, sink: Arc<dyn EventSink>) -> Result<Engine> {
+        let engine = Self::with_store_locked(store, secrets, sink)?;
+        engine.open_gate()?;
+        Ok(engine)
+    }
+
+    pub fn with_store_locked(store: Store, secrets: Arc<dyn SecretStore>, sink: Arc<dyn EventSink>) -> Result<Engine> {
         Self::build(store, secrets, sink, None)
     }
 
@@ -435,19 +501,149 @@ impl Engine {
             oauth_refresh: tokio::sync::Mutex::new(()),
             oauth_cancel: Mutex::new(None),
             draft_saves: Mutex::new(HashMap::new()),
+            gate: Mutex::new(None),
+            sync_started: Mutex::new(HashSet::new()),
+            link: Mutex::new(None),
+            org: Mutex::new(None),
         });
         let engine = Engine { inner };
-        for account in engine.inner.store.accounts()? {
-            engine.spawn_worker(&account.id);
-        }
-        engine.inner.runtime.spawn(outbox_loop(Arc::downgrade(&engine.inner)));
-        engine.inner.runtime.spawn(snooze_loop(Arc::downgrade(&engine.inner)));
+        // Local upkeep only; nothing here talks to a mail server.
         engine.inner.runtime.spawn(categorize_backlog(Arc::downgrade(&engine.inner)));
         engine.inner.runtime.spawn(db_maintenance(Arc::downgrade(&engine.inner)));
-        engine.inner.runtime.spawn(ai_sort_loop(Arc::downgrade(&engine.inner)));
-        engine.inner.runtime.spawn(autoclean_loop(Arc::downgrade(&engine.inner)));
-        engine.inner.runtime.spawn(crate::calendar::calendar_loop(Arc::downgrade(&engine.inner)));
         Ok(engine)
+    }
+
+    /// Start mail: a worker per account and the schedulers (outbox, snooze,
+    /// AI sorting, auto-clean, calendar). Does nothing when already open.
+    pub fn open_gate(&self) -> Result<()> {
+        let accounts = self.inner.store.accounts()?;
+        let token = {
+            let mut gate = self.inner.gate.lock().unwrap();
+            if gate.is_some() {
+                return Ok(());
+            }
+            let t = CancellationToken::new();
+            *gate = Some(t.clone());
+            t
+        };
+        self.inner.sync_started.lock().unwrap().clear();
+        for account in accounts {
+            self.spawn_worker(&account.id);
+        }
+        let weak = || Arc::downgrade(&self.inner);
+        self.spawn_gated(&token, outbox_loop(weak()));
+        self.spawn_gated(&token, snooze_loop(weak()));
+        self.spawn_gated(&token, ai_sort_loop(weak()));
+        self.spawn_gated(&token, autoclean_loop(weak()));
+        self.spawn_gated(&token, crate::calendar::calendar_loop(weak()));
+        Ok(())
+    }
+
+    /// Stop every account worker and scheduler (signed out of Remail).
+    pub fn close_gate(&self) {
+        if let Some(t) = self.inner.gate.lock().unwrap().take() {
+            t.cancel();
+        }
+        self.inner.workers.lock().unwrap().clear();
+        self.inner.sync_started.lock().unwrap().clear();
+    }
+
+    pub fn gate_open(&self) -> bool {
+        self.inner.gate.lock().unwrap().is_some()
+    }
+
+    fn spawn_gated(&self, token: &CancellationToken, work: impl std::future::Future<Output = ()> + Send + 'static) {
+        let token = token.clone();
+        self.inner.runtime.spawn(async move {
+            tokio::select! {
+                _ = token.cancelled() => {}
+                _ = work => {}
+            }
+        });
+    }
+
+    /// Whether a worker runs for the account (mail started, account here).
+    pub fn worker_running(&self, account_id: &str) -> bool {
+        self.inner.workers.lock().unwrap().get(account_id).is_some_and(|w| w.tasks.iter().any(|t| !t.is_finished()))
+    }
+
+    /// Whether the account's worker has started a sync since mail started.
+    pub fn sync_started(&self, account_id: &str) -> bool {
+        self.inner.sync_started.lock().unwrap().contains(account_id)
+    }
+
+    /// Connect the engine to the Remail server (setup changes are synced through it).
+    pub fn set_cloud_link(&self, link: Weak<dyn CloudLink>) {
+        *self.inner.link.lock().unwrap() = Some(link);
+    }
+
+    fn link(&self) -> Option<Arc<dyn CloudLink>> {
+        self.inner.link.lock().unwrap().as_ref().and_then(Weak::upgrade)
+    }
+
+    /// Setup in `section` changed here: the Remail server should get it.
+    pub(crate) fn mark_dirty(&self, section: &str) {
+        mark_dirty(&self.inner, section);
+    }
+
+    /// Save an account's or calendar account's credential (and sync it).
+    pub(crate) fn set_credential(&self, owner_id: &str, secret: &str) -> Result<()> {
+        set_credential(&self.inner, owner_id, secret)
+    }
+
+    /// The organisation's provider rules (from the Remail server's org config).
+    pub fn set_org(&self, org: Option<OrgAccess>) {
+        *self.inner.org.lock().unwrap() = org;
+    }
+
+    pub fn org(&self) -> Option<OrgAccess> {
+        self.inner.org.lock().unwrap().clone()
+    }
+
+    /// Refuse providers (and, for other providers, servers) the organisation doesn't allow.
+    fn check_provider(&self, kind: OrgKind, imap_host: &str) -> Result<()> {
+        let Some(org) = self.org() else { return Ok(()) };
+        let ok = org.providers.allows(kind) && (kind != OrgKind::Imap || org.providers.allows_imap_host(imap_host.trim()));
+        if ok {
+            Ok(())
+        } else {
+            Err(not_allowed(kind))
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Window and sidebar preferences
+    // ------------------------------------------------------------------
+
+    pub fn ui_prefs(&self) -> UiPrefs {
+        self.inner.store.setting(UI_PREFS).unwrap_or_default()
+    }
+
+    pub fn set_ui_prefs(&self, patch: UiPrefsPatch) -> Result<UiPrefs> {
+        let mut p = self.ui_prefs();
+        let before = p.clone();
+        if let Some(s) = patch.shortcuts {
+            p.shortcuts = s;
+        }
+        if let Some(h) = patch.sidebar_hidden {
+            p.sidebar_hidden = h;
+        }
+        if let Some(a) = patch.last_compose_account {
+            p.last_compose_account = a;
+        }
+        self.inner.store.set_setting(UI_PREFS, &p)?;
+        if p.shortcuts != before.shortcuts {
+            self.mark_dirty(sections::SHORTCUTS);
+        }
+        if p.sidebar_hidden != before.sidebar_hidden || p.last_compose_account != before.last_compose_account {
+            self.mark_dirty(sections::PREFS);
+        }
+        // Hidden folders travel with their accounts (`hiddenFolders`).
+        let folders = |h: &Option<Vec<String>>| -> HashSet<String> { h.iter().flatten().filter(|e| e.starts_with("folder:")).cloned().collect() };
+        if folders(&p.sidebar_hidden) != folders(&before.sidebar_hidden) {
+            self.mark_dirty(sections::ACCOUNTS);
+        }
+        Ok(p)
     }
 
     pub fn store(&self) -> &Store {
@@ -497,6 +693,9 @@ impl Engine {
         }
         self.inner.store.set_setting("app", &s)?;
         self.inner.clean_wake.notify_one();
+        self.mark_dirty(sections::PREFS);
+        // Calendar preferences sync with the calendars.
+        self.mark_dirty(sections::CALENDARS);
         Ok(s)
     }
 
@@ -504,7 +703,11 @@ impl Engine {
     // Accounts
     // ------------------------------------------------------------------
 
+    /// Start the account's worker (only while mail runs, see `open_gate`).
     fn spawn_worker(&self, account_id: &str) {
+        if !self.gate_open() {
+            return;
+        }
         let (tx, rx) = mpsc::unbounded_channel();
         let weak = Arc::downgrade(&self.inner);
         let main = self.inner.runtime.spawn(worker_loop(weak.clone(), account_id.to_string(), rx));
@@ -550,15 +753,12 @@ impl Engine {
         if self.inner.store.accounts()?.iter().any(|x| x.email.eq_ignore_ascii_case(a.email.trim())) {
             bail!("This account is already added");
         }
-        let kind = crate::presets::provider_kind(&a.email, &a.imap.host);
-        if !self.settings().providers.allows(kind) {
-            return Err(not_allowed(kind));
-        }
+        self.check_provider(account_provider(&a.email, &a.imap.host, "password"), &a.imap.host)?;
         let gmail = self.verify_account(&a).await?;
         let account = self.inner.store.insert_account(&a, gmail, "password")?;
-        self.inner.secrets.set(&account.id, &a.password)?;
+        self.set_credential(&account.id, &a.password)?;
         self.spawn_worker(&account.id);
-        self.emit(EngineEvent::MailboxChanged { account_id: account.id.clone() });
+        self.account_changed(&account.id, true);
         Ok(account)
     }
 
@@ -574,20 +774,32 @@ impl Engine {
             self.inner.store.update_account_servers(id, &a)?;
             self.inner.workers.lock().unwrap().remove(id);
             self.spawn_worker(id);
+            self.mark_dirty(sections::ACCOUNTS);
             return Ok(());
+        }
+        if !a.imap.host.trim().eq_ignore_ascii_case(existing.imap.host.trim()) {
+            self.check_provider(account_provider(&existing.email, &a.imap.host, "password"), &a.imap.host)?;
         }
         let gmail = self.verify_account(&a).await?;
         self.inner.store.update_account_servers(id, &a)?;
         // Moving to or from Gmail changes whether sent mail needs a copy in Sent.
         self.inner.store.set_account_gmail(id, gmail)?;
-        self.inner.secrets.set(id, &a.password)?;
+        self.set_credential(id, &a.password)?;
         // Restart the worker so it reconnects with the new settings.
         self.inner.workers.lock().unwrap().remove(id);
         self.spawn_worker(id);
+        self.account_changed(id, true);
         Ok(())
     }
 
     pub fn remove_account(&self, id: &str) -> Result<()> {
+        self.remove_account_here(id)?;
+        self.account_changed(id, true);
+        Ok(())
+    }
+
+    /// Stop and delete an account on this device (its credential included).
+    pub(crate) fn remove_account_here(&self, id: &str) -> Result<()> {
         self.inner.workers.lock().unwrap().remove(id);
         self.inner.store.delete_account(id)?;
         self.inner.secrets.delete(id)?;
@@ -595,8 +807,24 @@ impl Engine {
         cache.remove(id);
         cache.remove(&token_key(id, Service::Calendar));
         drop(cache);
+        // Its hidden folders went with it (they sync as part of its record).
+        let mut ui = self.ui_prefs();
+        let prefix = format!("folder:{id}:");
+        if let Some(h) = ui.sidebar_hidden.as_mut().filter(|h| h.iter().any(|e| e.starts_with(&prefix))) {
+            h.retain(|e| !e.starts_with(&prefix));
+            self.inner.store.set_setting(UI_PREFS, &ui)?;
+        }
         self.emit(EngineEvent::MailboxChanged { account_id: id.to_string() });
         Ok(())
+    }
+
+    /// An account was added, edited or removed here (`credential`: and its sign-in).
+    fn account_changed(&self, id: &str, credential: bool) {
+        self.mark_dirty(sections::ACCOUNTS);
+        if credential {
+            self.mark_dirty(&sections::cred_section(id));
+        }
+        self.emit(EngineEvent::MailboxChanged { account_id: id.to_string() });
     }
 
     pub fn accounts(&self) -> Result<Vec<Account>> {
@@ -607,14 +835,16 @@ impl Engine {
     // Microsoft accounts (Outlook.com, Hotmail, Live, MSN, Microsoft 365)
     // ------------------------------------------------------------------
 
-    /// The app (client) ID for Microsoft sign-in: Settings first, else the one
-    /// Remail was built with (`REMAIL_MS_CLIENT_ID`).
+    /// The app (client) ID for Microsoft sign-in, from the organisation's settings.
     pub fn microsoft_client_id(&self) -> Option<String> {
-        let set = self.settings().microsoft_client_id.trim().to_string();
-        if !set.is_empty() {
-            return Some(set);
-        }
-        option_env!("REMAIL_MS_CLIENT_ID").map(str::trim).filter(|s| !s.is_empty()).map(String::from)
+        let org = self.org()?;
+        Some(org.providers.microsoft_app.client_id.trim().to_string()).filter(|s| !s.is_empty())
+    }
+
+    /// The client ID for Google sign-in, from the organisation's settings.
+    pub fn google_client_id(&self) -> Option<String> {
+        let org = self.org()?;
+        Some(org.providers.google_app.client_id.trim().to_string()).filter(|s| !s.is_empty())
     }
 
     /// Sign in at Microsoft in the browser (`open` shows the page) and wait
@@ -622,14 +852,11 @@ impl Engine {
     /// allowed (declined, or the organization wants an administrator to
     /// approve it), the browser opens once more for mail alone.
     async fn microsoft_sign_in(&self, open: impl Fn(&str) -> Result<()>, login_hint: Option<&str>) -> Result<(oauth::Tokens, String, CancellationToken)> {
-        let client_id = self
-            .microsoft_client_id()
-            .context("Microsoft sign-in needs Remail's app (client) ID first: add it in Settings → Accounts.")?;
-        let cancel = CancellationToken::new();
-        if let Some(previous) = self.inner.oauth_cancel.lock().unwrap().replace(cancel.clone()) {
-            previous.cancel();
-        }
-        let provider = microsoft_provider();
+        let client_id = self.microsoft_client_id().context(
+            "Microsoft sign-in isn't set up for your organisation yet: an administrator needs to add Remail's app (client) ID.",
+        )?;
+        let cancel = self.new_sign_in();
+        let provider = microsoft_provider(self.org().map(|o| o.providers.microsoft_app.tenant).as_deref());
         let tokens = match self.browser_sign_in(&provider, &client_id, login_hint, &open, &cancel).await {
             Err(e) if !provider.also_consent.is_empty() && e.downcast_ref::<oauth::OAuthError>().is_some_and(|o| o.consent_refused()) => {
                 tracing::info!("signing in for mail only: {e:#}");
@@ -640,6 +867,47 @@ impl Engine {
         };
         // Still cancellable while the account's servers are checked.
         Ok((tokens, client_id, cancel))
+    }
+
+    /// Sign in at Google in the browser. The code is exchanged here (PKCE),
+    /// or by the Remail server when the organisation gave it a client secret.
+    async fn google_sign_in(&self, open: impl Fn(&str) -> Result<()>, login_hint: Option<&str>) -> Result<(oauth::Tokens, String, CancellationToken)> {
+        let client_id = self
+            .google_client_id()
+            .context("Google sign-in isn't set up for your organisation yet: an administrator needs to add a Google client ID.")?;
+        let server_exchange = self.org().is_some_and(|o| o.google_server_exchange);
+        let cancel = self.new_sign_in();
+        let provider = google_provider();
+        let pending = oauth::begin(&provider, &client_id, login_hint).await?;
+        open(&pending.url)?;
+        let authorized = tokio::select! {
+            r = pending.authorized(Duration::from_secs(600)) => r?,
+            _ = cancel.cancelled() => bail!("Sign-in cancelled"),
+        };
+        let tokens = if server_exchange {
+            let link = self.link().context("Google sign-in needs the Remail server, which isn't connected")?;
+            let req = remail_proto::api::GoogleExchange {
+                code: authorized.code.clone(),
+                code_verifier: authorized.verifier.clone(),
+                redirect_uri: authorized.redirect_uri.clone(),
+            };
+            tokio::select! {
+                r = link.google_exchange(req) => oauth::tokens_from_server(r?),
+                _ = cancel.cancelled() => bail!("Sign-in cancelled"),
+            }
+        } else {
+            oauth::exchange(&self.inner.http, &provider, &client_id, &authorized).await?
+        };
+        Ok((tokens, client_id, cancel))
+    }
+
+    /// A new browser sign-in replaces one still waiting.
+    fn new_sign_in(&self) -> CancellationToken {
+        let cancel = CancellationToken::new();
+        if let Some(previous) = self.inner.oauth_cancel.lock().unwrap().replace(cancel.clone()) {
+            previous.cancel();
+        }
+        cancel
     }
 
     async fn browser_sign_in(
@@ -658,12 +926,12 @@ impl Engine {
         }
     }
 
-    /// An access token for the Microsoft account's calendar (Microsoft Graph).
+    /// An access token for the account's calendar (Microsoft Graph, Google CalDAV).
     pub(crate) async fn calendar_token(&self, account_id: &str) -> Result<String> {
         access_token(&self.inner, account_id, Service::Calendar).await
     }
 
-    /// Microsoft refused this calendar token: the next request gets a new one.
+    /// The provider refused this calendar token: the next request gets a new one.
     pub(crate) fn forget_calendar_token(&self, account_id: &str, failed: &str) {
         forget_service_token(&self.inner, account_id, Service::Calendar, failed);
     }
@@ -679,6 +947,22 @@ impl Engine {
         });
     }
 
+    /// Connect the Google account's calendars in the background (once).
+    fn spawn_google_calendar(&self, account_id: &str) {
+        let engine = self.clone();
+        let id = account_id.to_string();
+        self.inner.runtime.spawn(async move {
+            let have = engine.cal_accounts().map(|c| c.iter().any(|c| c.mail_account_id.as_deref() == Some(id.as_str()))).unwrap_or(true);
+            if have {
+                return;
+            }
+            let req = crate::calendar::CalConnect { mail_account_id: Some(id), url: None, username: None, password: None, allow_invalid_certs: false };
+            if let Err(e) = engine.cal_connect(req).await {
+                tracing::info!("Google calendar: {e:#}");
+            }
+        });
+    }
+
     /// Stop waiting for a browser sign-in.
     pub fn cancel_sign_in(&self) {
         if let Some(c) = self.inner.oauth_cancel.lock().unwrap().take() {
@@ -690,10 +974,34 @@ impl Engine {
     /// signing in at Microsoft. Reading must work; if sending doesn't (a
     /// Microsoft 365 admin can turn SMTP off), the account is added with a warning.
     pub async fn add_microsoft_account(&self, open: impl Fn(&str) -> Result<()>, req: OAuthAccountRequest) -> Result<OAuthAccountAdded> {
-        if !self.settings().providers.outlook {
-            return Err(not_allowed(crate::presets::ProviderKind::Outlook));
-        }
+        self.check_provider(OrgKind::Microsoft, "")?;
         let (tokens, client_id, cancel) = self.microsoft_sign_in(open, req.email.as_deref()).await?;
+        let personal = |email: &str, tokens: &oauth::Tokens| {
+            let domain = email.rsplit('@').next().unwrap_or_default().to_string();
+            tokens.identity.tenant.as_deref() == Some(oauth::MICROSOFT_CONSUMER_TENANT) || presets::MICROSOFT_DOMAINS.contains(&domain.as_str())
+        };
+        self.add_oauth_account(oauth::MICROSOFT, tokens, client_id, cancel, req, |email, tokens| presets::microsoft_servers(personal(email, tokens)))
+            .await
+    }
+
+    /// Add a Gmail or Google Workspace account by signing in at Google: mail
+    /// over IMAP/SMTP with XOAUTH2, and its calendars over CalDAV.
+    pub async fn add_google_account(&self, open: impl Fn(&str) -> Result<()>, req: OAuthAccountRequest) -> Result<OAuthAccountAdded> {
+        self.check_provider(OrgKind::Google, "")?;
+        let (tokens, client_id, cancel) = self.google_sign_in(open, req.email.as_deref()).await?;
+        self.add_oauth_account(oauth::GOOGLE, tokens, client_id, cancel, req, |_, _| presets::google_servers()).await
+    }
+
+    async fn add_oauth_account(
+        &self,
+        provider: &str,
+        tokens: oauth::Tokens,
+        client_id: String,
+        cancel: CancellationToken,
+        req: OAuthAccountRequest,
+        servers: impl FnOnce(&str, &oauth::Tokens) -> (ServerConfig, ServerConfig),
+    ) -> Result<OAuthAccountAdded> {
+        let name = provider_name(provider);
         let email = tokens
             .identity
             .email
@@ -701,16 +1009,14 @@ impl Engine {
             .or_else(|| req.email.clone())
             .map(|e| e.trim().to_lowercase())
             .filter(|e| e.contains('@'))
-            .context("Microsoft didn't share this account's email address")?;
+            .with_context(|| format!("{name} didn't share this account's email address"))?;
         if self.inner.store.accounts()?.iter().any(|x| x.email.eq_ignore_ascii_case(&email)) {
             bail!("{email} is already added");
         }
-        let refresh_token = tokens.refresh_token.clone().context("Microsoft didn't allow staying signed in (no refresh token)")?;
-        let domain = email.rsplit('@').next().unwrap_or_default().to_string();
-        let personal = tokens.identity.tenant.as_deref() == Some(oauth::MICROSOFT_CONSUMER_TENANT) || presets::MICROSOFT_DOMAINS.contains(&domain.as_str());
+        let refresh_token = tokens.refresh_token.clone().with_context(|| format!("{name} didn't allow staying signed in (no refresh token)"))?;
         let (imap, smtp) = match (req.imap, req.smtp) {
             (Some(i), Some(s)) => (i, s),
-            _ => presets::microsoft_servers(personal),
+            _ => servers(&email, &tokens),
         };
         let login = Login::OAuth(tokens.access_token.clone());
         verify_imap(&imap, &email, &login, req.allow_invalid_certs).await?;
@@ -725,41 +1031,59 @@ impl Engine {
             smtp,
             allow_invalid_certs: req.allow_invalid_certs,
         };
-        let grant = oauth::Grant { provider: oauth::MICROSOFT.into(), client_id, refresh_token, subject: tokens.identity.subject() };
+        let grant = oauth::Grant { provider: provider.into(), client_id, refresh_token, subject: tokens.identity.subject() };
         if cancel.is_cancelled() {
             bail!("Sign-in cancelled");
         }
-        let account = self.inner.store.insert_account(&new, false, oauth::MICROSOFT)?;
-        let saved = serde_json::to_string(&grant).map_err(anyhow::Error::from).and_then(|g| self.inner.secrets.set(&account.id, &g));
+        let account = self.inner.store.insert_account(&new, provider == oauth::GOOGLE, provider)?;
+        let saved = serde_json::to_string(&grant).map_err(anyhow::Error::from).and_then(|g| self.set_credential(&account.id, &g));
         if let Err(e) = saved {
             let _ = self.inner.store.delete_account(&account.id);
             return Err(e);
         }
-        self.inner.oauth_tokens.lock().unwrap().insert(account.id.clone(), (tokens.access_token, tokens.expires_at));
+        {
+            let mut cache = self.inner.oauth_tokens.lock().unwrap();
+            if provider == oauth::GOOGLE {
+                // Google's token covers the calendar too.
+                cache.insert(token_key(&account.id, Service::Calendar), (tokens.access_token.clone(), tokens.expires_at));
+            }
+            cache.insert(account.id.clone(), (tokens.access_token, tokens.expires_at));
+        }
         self.spawn_worker(&account.id);
-        self.spawn_outlook_calendar(&account.id);
-        self.emit(EngineEvent::MailboxChanged { account_id: account.id.clone() });
+        if provider == oauth::GOOGLE {
+            self.spawn_google_calendar(&account.id);
+        } else {
+            self.spawn_outlook_calendar(&account.id);
+        }
+        self.account_changed(&account.id, true);
         let account = self.inner.store.account(&account.id)?.context("account vanished")?;
         Ok(OAuthAccountAdded { account, warning })
     }
 
-    /// Sign a Microsoft account in again (expired or revoked sign-in). A
-    /// Hotmail/Outlook account added with a password is switched to Microsoft
-    /// sign-in this way.
+    /// Sign an OAuth account in again (expired or revoked sign-in). A
+    /// Hotmail/Outlook or Gmail account added with a password is switched to
+    /// Microsoft or Google sign-in this way.
     pub async fn reauthorize_account(&self, id: &str, open: impl Fn(&str) -> Result<()>) -> Result<()> {
         let account = self.inner.store.account(id)?.context("account not found")?;
         let converting = account.auth == "password";
-        let domain = account.email.rsplit('@').next().unwrap_or_default().to_lowercase();
-        if converting && !(presets::MICROSOFT_DOMAINS.contains(&domain.as_str()) || account.imap.host.eq_ignore_ascii_case("outlook.office365.com")) {
-            bail!("This account signs in with a password");
+        let kind = account_provider(&account.email, &account.imap.host, &account.auth);
+        let provider = match kind {
+            OrgKind::Google => oauth::GOOGLE,
+            OrgKind::Microsoft => oauth::MICROSOFT,
+            OrgKind::Imap => bail!("This account signs in with a password"),
+        };
+        if !converting && account.auth != provider {
+            bail!("This account can't sign in with {}", provider_name(provider));
         }
-        if !converting && account.auth != oauth::MICROSOFT {
-            bail!("This account can't sign in with Microsoft");
-        }
+        self.check_provider(kind, &account.imap.host)?;
         let previous: Option<oauth::Grant> =
             if converting { None } else { self.inner.secrets.get(id)?.and_then(|raw| serde_json::from_str(&raw).ok()) };
-        let (tokens, client_id, cancel) = self.microsoft_sign_in(open, Some(&account.email)).await?;
-        // The same Microsoft account: by its id when we know it (the address may have changed), else by address.
+        let (tokens, client_id, cancel) = if provider == oauth::GOOGLE {
+            self.google_sign_in(open, Some(&account.email)).await?
+        } else {
+            self.microsoft_sign_in(open, Some(&account.email)).await?
+        };
+        // The same account: by its id when we know it (the address may have changed), else by address.
         let same = match (previous.as_ref().and_then(|g| g.subject.clone()), tokens.identity.subject()) {
             (Some(was), Some(now)) => was == now,
             _ => tokens.identity.email.as_deref().is_none_or(|e| e.eq_ignore_ascii_case(&account.email)),
@@ -768,19 +1092,22 @@ impl Engine {
             let who = tokens.identity.email.clone().unwrap_or_else(|| "a different account".into());
             bail!("You signed in as {who}, but this account is {}. Please sign in with {} instead.", account.email, account.email);
         }
-        let refresh_token = tokens.refresh_token.clone().context("Microsoft didn't allow staying signed in (no refresh token)")?;
+        let refresh_token = tokens
+            .refresh_token
+            .clone()
+            .with_context(|| format!("{} didn't allow staying signed in (no refresh token)", provider_name(provider)))?;
         // Prove the new sign-in opens this mailbox before replacing anything.
         verify_imap(&account.imap, &account.username, &Login::OAuth(tokens.access_token.clone()), account.allow_invalid_certs).await?;
         if cancel.is_cancelled() {
             bail!("Sign-in cancelled");
         }
-        let grant = oauth::Grant { provider: oauth::MICROSOFT.into(), client_id, refresh_token, subject: tokens.identity.subject() };
+        let grant = oauth::Grant { provider: provider.into(), client_id, refresh_token, subject: tokens.identity.subject() };
         {
             // A refresh in flight with the old grant must not overwrite the new one.
             let _no_refresh = self.inner.oauth_refresh.lock().await;
-            self.inner.secrets.set(id, &serde_json::to_string(&grant)?)?;
+            self.set_credential(id, &serde_json::to_string(&grant)?)?;
             if converting {
-                self.inner.store.set_account_auth(id, oauth::MICROSOFT)?;
+                self.inner.store.set_account_auth(id, provider)?;
             }
             let mut cache = self.inner.oauth_tokens.lock().unwrap();
             cache.insert(id.to_string(), (tokens.access_token, tokens.expires_at));
@@ -790,8 +1117,12 @@ impl Engine {
         self.inner.store.set_account_status(id, AccountStatus::Active, None)?;
         self.inner.workers.lock().unwrap().remove(id);
         self.spawn_worker(id);
-        self.spawn_outlook_calendar(id);
-        self.emit(EngineEvent::MailboxChanged { account_id: id.to_string() });
+        if provider == oauth::GOOGLE {
+            self.spawn_google_calendar(id);
+        } else {
+            self.spawn_outlook_calendar(id);
+        }
+        self.account_changed(id, true);
         Ok(())
     }
 
@@ -810,7 +1141,7 @@ impl Engine {
             hidden_in_unified,
             auto_bcc.as_deref(),
         )?;
-        self.emit(EngineEvent::MailboxChanged { account_id: id.to_string() });
+        self.account_changed(id, false);
         Ok(())
     }
 
@@ -1043,7 +1374,9 @@ impl Engine {
             match action {
                 ThreadAction::Archive => {
                     moves.push((ids(&|l| l.folder == labels::INBOX), labels::ARCHIVE));
-                    self.inner.store.unsnooze(&t.account_id, &t.thread_id)?;
+                    if self.inner.store.unsnooze(&t.account_id, &t.thread_id)? {
+                        self.mark_dirty(sections::SNOOZES);
+                    }
                 }
                 ThreadAction::MoveToInbox { from } => {
                     let from = from.clone();
@@ -1057,7 +1390,9 @@ impl Engine {
                 }
                 ThreadAction::Trash => {
                     moves.push((ids(&|l| l.folder != labels::TRASH), labels::TRASH));
-                    self.inner.store.unsnooze(&t.account_id, &t.thread_id)?;
+                    if self.inner.store.unsnooze(&t.account_id, &t.thread_id)? {
+                        self.mark_dirty(sections::SNOOZES);
+                    }
                 }
                 ThreadAction::Spam => {
                     moves.push((ids(&|l| !matches!(l.folder.as_str(), labels::SPAM | labels::SENT | labels::DRAFTS | labels::TRASH)), labels::SPAM));
@@ -1185,6 +1520,7 @@ impl Engine {
             self.emit(EngineEvent::MailboxChanged { account_id: t.account_id.clone() });
         }
         self.inner.snooze_wake.notify_one();
+        self.mark_dirty(sections::SNOOZES);
         Ok(())
     }
 
@@ -1194,6 +1530,7 @@ impl Engine {
             self.emit(EngineEvent::MailboxChanged { account_id: t.account_id.clone() });
         }
         self.inner.snooze_wake.notify_one();
+        self.mark_dirty(sections::SNOOZES);
         Ok(())
     }
 
@@ -1511,11 +1848,14 @@ impl Engine {
             s.id = new_id("sig");
         }
         self.inner.store.save_signature(&s)?;
+        self.mark_dirty(sections::SIGNATURES);
         Ok(s)
     }
 
     pub fn delete_signature(&self, id: &str) -> Result<()> {
-        self.inner.store.delete_signature(id)
+        self.inner.store.delete_signature(id)?;
+        self.mark_dirty(sections::SIGNATURES);
+        Ok(())
     }
 
     pub fn templates(&self) -> Result<Vec<Template>> {
@@ -1531,11 +1871,14 @@ impl Engine {
         }
         t.updated_at = now_ms();
         self.inner.store.save_template(&t)?;
+        self.mark_dirty(sections::TEMPLATES);
         Ok(t)
     }
 
     pub fn delete_template(&self, id: &str) -> Result<()> {
-        self.inner.store.delete_template(id)
+        self.inner.store.delete_template(id)?;
+        self.mark_dirty(sections::TEMPLATES);
+        Ok(())
     }
 
     // ------------------------------------------------------------------
@@ -1607,6 +1950,7 @@ impl Engine {
             None => None,
         };
         self.inner.store.set_sender_rule(email, category)?;
+        self.mark_dirty(sections::SENDER_RULES);
         for a in self.accounts()? {
             self.emit(EngineEvent::MailboxChanged { account_id: a.id });
         }
@@ -1651,6 +1995,9 @@ impl Engine {
         }
         self.inner.ai.summaries.lock().unwrap().clear();
         self.inner.ai.sort_wake.notify_one();
+        if (before.enabled, &before.instructions, before.smart_sort) != (s.enabled, &s.instructions, s.smart_sort) {
+            self.mark_dirty(sections::PREFS);
+        }
         Ok(())
     }
 
@@ -2217,6 +2564,93 @@ impl Engine {
     }
 
     // ------------------------------------------------------------------
+    // Signing out of Remail
+    // ------------------------------------------------------------------
+
+    /// Stop mail and remove everything the Remail account brought to this
+    /// device: mailboxes (with their mail), credentials, calendars,
+    /// signatures, templates, sender rules, snoozes and the section cache.
+    /// Device settings (theme, notifications, MCP) stay.
+    pub fn wipe_setup(&self) -> Result<()> {
+        self.close_gate();
+        self.cancel_sign_in();
+        let accounts = self.inner.store.accounts()?;
+        let cal_accounts: Vec<String> = {
+            let db = self.inner.store.db();
+            let mut stmt = db.prepare("SELECT id FROM cal_accounts")?;
+            let rows = stmt.query_map([], |r| r.get(0))?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        for a in &accounts {
+            if let Err(e) = self.inner.secrets.delete(&a.id) {
+                tracing::warn!("couldn't delete an account's credential: {e:#}");
+            }
+        }
+        for c in &cal_accounts {
+            let _ = self.inner.secrets.delete(&format!("cal:{c}"));
+        }
+        {
+            let mut db = self.inner.store.db();
+            let tx = db.transaction()?;
+            tx.execute_batch(
+                "DELETE FROM cal_accounts; DELETE FROM signatures; DELETE FROM templates; DELETE FROM sender_rules;
+                 DELETE FROM snoozes; DELETE FROM accounts; DELETE FROM cloud_sections;",
+            )?;
+            for key in [crate::calendar::OUTLOOK_OFF, UI_PREFS, crate::cloud::CAL_OVERRIDES] {
+                tx.execute("DELETE FROM settings WHERE key = ?", [key])?;
+            }
+            tx.commit()?;
+        }
+        self.inner.oauth_tokens.lock().unwrap().clear();
+        self.inner.ai.summaries.lock().unwrap().clear();
+        self.inner.ai.chats.lock().unwrap().clear();
+        self.inner.cal.forget_all();
+        for a in accounts {
+            self.emit(EngineEvent::MailboxChanged { account_id: a.id });
+        }
+        self.emit(EngineEvent::CalendarChanged);
+        Ok(())
+    }
+
+    /// Stop Remail's MCP server (signed out: agents mustn't reach mail).
+    pub async fn stop_mcp(&self) {
+        self.stop_mcp_server().await;
+    }
+
+    /// Re-apply what settings changed on another device and tell open windows.
+    pub(crate) fn settings_applied(&self) {
+        self.inner.clean_wake.notify_one();
+        self.inner.ai.sort_wake.notify_one();
+        self.inner.snooze_wake.notify_one();
+        self.emit(EngineEvent::SettingsChanged);
+    }
+
+    /// A snooze arrived from another device.
+    pub(crate) fn snoozes_applied(&self, account_ids: &[String]) {
+        self.inner.snooze_wake.notify_one();
+        for a in account_ids {
+            self.emit(EngineEvent::MailboxChanged { account_id: a.clone() });
+        }
+    }
+
+    /// Restart an account's worker (its servers or sign-in changed elsewhere).
+    pub(crate) fn restart_worker(&self, account_id: &str) {
+        self.inner.workers.lock().unwrap().remove(account_id);
+        let mut cache = self.inner.oauth_tokens.lock().unwrap();
+        cache.remove(account_id);
+        cache.remove(&token_key(account_id, Service::Calendar));
+        drop(cache);
+        self.spawn_worker(account_id);
+    }
+
+    /// Start the worker of an account that arrived from another device.
+    pub(crate) fn start_worker(&self, account_id: &str) {
+        if !self.inner.workers.lock().unwrap().contains_key(account_id) {
+            self.spawn_worker(account_id);
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Unsubscribe
     // ------------------------------------------------------------------
 
@@ -2350,7 +2784,8 @@ async fn connect(inner: &Inner, account: &Account) -> Result<ImapConn> {
                 forget_token(inner, &account.id, failed);
                 ImapConn::connect(account, &login_for(inner, account).await?).await.map_err(|e| {
                     if imap::is_auth_error(&e) {
-                        oauth::SignInRequired("Microsoft no longer accepts this account's sign-in. Sign in again.".into()).into()
+                        let name = provider_name(&account.auth);
+                        oauth::SignInRequired(format!("{name} no longer accepts this account's sign-in. Sign in again.")).into()
                     } else {
                         e
                     }
@@ -2384,32 +2819,105 @@ async fn verify_imap(server: &ServerConfig, username: &str, login: &Login, allow
     Ok(gmail)
 }
 
-/// The Microsoft identity platform. Debug builds can point it at a test
-/// server with `REMAIL_MS_AUTHORITY` (never release builds: refresh tokens
-/// would go there).
-fn microsoft_provider() -> oauth::Provider {
-    if cfg!(debug_assertions) {
-        if let Ok(a) = std::env::var("REMAIL_MS_AUTHORITY") {
-            if !a.trim().is_empty() {
-                return oauth::Provider::microsoft_at(a.trim());
-            }
-        }
+/// A debug-only override of a provider endpoint (tests point it at a mock;
+/// release builds never read it: refresh tokens would go there).
+fn debug_endpoint(var: &str) -> Option<String> {
+    if !cfg!(debug_assertions) {
+        return None;
     }
-    oauth::Provider::microsoft()
+    std::env::var(var).ok().map(|v| v.trim().trim_end_matches('/').to_string()).filter(|v| !v.is_empty())
 }
 
-/// How the account logs in next: its password, or a Microsoft access token
+/// The Microsoft identity platform for the organisation's tenant (`common`
+/// when it has none). `REMAIL_MS_AUTHORITY` overrides it in debug builds.
+fn microsoft_provider(tenant: Option<&str>) -> oauth::Provider {
+    if let Some(a) = debug_endpoint("REMAIL_MS_AUTHORITY") {
+        return oauth::Provider::microsoft_at(&a);
+    }
+    match tenant.map(str::trim).filter(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')) {
+        Some(t) => oauth::Provider::microsoft_at(&format!("https://login.microsoftonline.com/{t}")),
+        None => oauth::Provider::microsoft(),
+    }
+}
+
+/// Google's sign-in. `REMAIL_GOOGLE_AUTHORITY` overrides it in debug builds.
+fn google_provider() -> oauth::Provider {
+    match debug_endpoint("REMAIL_GOOGLE_AUTHORITY") {
+        Some(a) => oauth::Provider::google_at(&a),
+        None => oauth::Provider::google(),
+    }
+}
+
+/// Google Calendar's CalDAV endpoint. `REMAIL_GOOGLE_CALDAV` overrides it in debug builds.
+pub(crate) fn google_caldav_base() -> String {
+    debug_endpoint("REMAIL_GOOGLE_CALDAV").unwrap_or_else(|| "https://apidata.googleusercontent.com/caldav/v2".into())
+}
+
+/// `Google` / `Microsoft` for an account's `auth` (or a grant's provider).
+fn provider_name(auth: &str) -> &'static str {
+    if auth == oauth::GOOGLE {
+        "Google"
+    } else {
+        "Microsoft"
+    }
+}
+
+fn provider_for(inner: &Inner, provider: &str) -> oauth::Provider {
+    if provider == oauth::GOOGLE {
+        google_provider()
+    } else {
+        microsoft_provider(inner.org.lock().unwrap().as_ref().map(|o| o.providers.microsoft_app.tenant.as_str()))
+    }
+}
+
+/// The server refused to refresh a Google sign-in: revoked or expired at
+/// Google is "sign in again"; anything else is passing.
+fn google_server_error(e: anyhow::Error) -> anyhow::Error {
+    match e.downcast_ref::<CloudError>() {
+        Some(c) if c.code == "invalid_token" => {
+            oauth::OAuthError { code: "invalid_grant".into(), description: c.message.clone(), detail: c.message.clone() }.into()
+        }
+        _ => e,
+    }
+}
+
+/// Save the credential of a mail account (`acc_…`, under its id) or a
+/// calendar account (`cal_…`, under `cal:<id>`), and sync it (`cred:<id>`).
+/// Every credential written here goes through this, whatever wrote it.
+fn set_credential(inner: &Inner, owner_id: &str, secret: &str) -> Result<()> {
+    inner.secrets.set(&credential_key(owner_id), secret)?;
+    mark_dirty(inner, &sections::cred_section(owner_id));
+    Ok(())
+}
+
+/// Where an account's credential is kept in the secret store.
+pub(crate) fn credential_key(owner_id: &str) -> String {
+    if owner_id.starts_with("cal_") {
+        format!("cal:{owner_id}")
+    } else {
+        owner_id.to_string()
+    }
+}
+
+fn mark_dirty(inner: &Inner, section: &str) {
+    let link = inner.link.lock().unwrap().as_ref().and_then(Weak::upgrade);
+    if let Some(link) = link {
+        link.mark_dirty(section);
+    }
+}
+
+/// How the account logs in next: its password, or an OAuth access token
 /// (refreshed shortly before it expires; a revoked sign-in becomes
 /// `SignInRequired`, which asks the user to sign in again).
 async fn login_for(inner: &Inner, account: &Account) -> Result<Login> {
-    if account.auth != oauth::MICROSOFT {
+    if account.auth == "password" {
         let password = inner.secrets.get(&account.id)?.context("no saved password for this account")?;
         return Ok(Login::Password(password));
     }
     Ok(Login::OAuth(access_token(inner, &account.id, Service::Mail).await?))
 }
 
-/// What a Microsoft access token is for: each token works for one service.
+/// What an access token is for: each Microsoft token works for one service.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Service {
     Mail,
@@ -2424,8 +2932,10 @@ fn token_key(account_id: &str, service: Service) -> String {
     }
 }
 
-/// A Microsoft access token for one of the account's services, from the
-/// cache or the saved sign-in (whose refresh token may rotate).
+/// An OAuth access token for one of the account's services, from the cache
+/// or the saved sign-in (whose refresh token may rotate). A rotated refresh
+/// token is saved and synced as the account's credential alone (`cred:<id>`),
+/// so it never races an edit of the account itself.
 async fn access_token(inner: &Inner, account_id: &str, service: Service) -> Result<String> {
     let key = token_key(account_id, service);
     let cached = || inner.oauth_tokens.lock().unwrap().get(&key).filter(|(_, exp)| *exp - now_ms() > 120_000).map(|(t, _)| t.clone());
@@ -2441,22 +2951,34 @@ async fn access_token(inner: &Inner, account_id: &str, service: Service) -> Resu
         .secrets
         .get(account_id)?
         .and_then(|raw| serde_json::from_str(&raw).ok())
-        .ok_or_else(|| sign_in_again("Sign in to Microsoft again"))?;
-    let provider = microsoft_provider();
+        .ok_or_else(|| sign_in_again("Sign in again"))?;
+    let provider = provider_for(inner, &grant.provider);
+    let name = provider.display_name();
     let scope = match service {
-        Service::Mail => provider.scope.clone(),
-        Service::Calendar => crate::graph::SCOPE.to_string(),
+        Service::Calendar if provider.id == oauth::MICROSOFT => crate::graph::SCOPE.to_string(),
+        _ => provider.scope.clone(),
     };
-    let tokens = match oauth::refresh(&inner.http, &provider, &grant.client_id, &grant.refresh_token, &scope).await {
+    // A Google sign-in the server exchanged (a "Web" client) refreshes there too: only it has the secret.
+    let via_server = grant.provider == oauth::GOOGLE && inner.org.lock().unwrap().as_ref().is_some_and(|o| o.google_server_exchange);
+    let refreshed = if via_server {
+        let link = inner.link.lock().unwrap().as_ref().and_then(Weak::upgrade);
+        match link {
+            Some(link) => link.google_refresh(grant.refresh_token.clone()).await.map(oauth::tokens_from_server).map_err(google_server_error),
+            None => Err(anyhow!("Google sign-in needs the Remail server, which isn't connected")),
+        }
+    } else {
+        oauth::refresh(&inner.http, &provider, &grant.client_id, &grant.refresh_token, &scope).await
+    };
+    let tokens = match refreshed {
         Ok(t) => t,
         Err(e) => {
             return Err(match (e.downcast_ref::<oauth::OAuthError>(), service) {
                 (Some(o), Service::Mail) if o.needs_sign_in() => {
-                    sign_in_again(&format!("Your Microsoft sign-in has expired ({}). Sign in again.", o.to_string().trim_end_matches('.')))
+                    sign_in_again(&format!("Your {name} sign-in has expired ({}). Sign in again.", o.to_string().trim_end_matches('.')))
                 }
                 // Signed in before Remail asked for the calendar, or the permission was taken back.
                 (Some(o), Service::Calendar) if o.needs_sign_in() => {
-                    sign_in_again(&format!("Sign in to Microsoft again to allow Remail to show this calendar ({}).", o.to_string().trim_end_matches('.')))
+                    sign_in_again(&format!("Sign in to {name} again to allow Remail to show this calendar ({}).", o.to_string().trim_end_matches('.')))
                 }
                 _ => e,
             });
@@ -2468,7 +2990,7 @@ async fn access_token(inner: &Inner, account_id: &str, service: Service) -> Resu
     }
     if let Some(rotated) = tokens.refresh_token.as_ref().filter(|rt| **rt != grant.refresh_token) {
         let grant = oauth::Grant { refresh_token: rotated.clone(), ..grant };
-        inner.secrets.set(account_id, &serde_json::to_string(&grant)?)?;
+        set_credential(inner, account_id, &serde_json::to_string(&grant)?)?;
     }
     inner.oauth_tokens.lock().unwrap().insert(key, (tokens.access_token.clone(), tokens.expires_at));
     Ok(tokens.access_token)
@@ -2569,6 +3091,7 @@ async fn worker_loop(weak: Weak<Inner>, account_id: String, mut rx: mpsc::Unboun
 
         match cmd {
             Cmd::Sync { periodic, reply } => {
+                inner.sync_started.lock().unwrap().insert(account.id.clone());
                 if periodic && account.status == AccountStatus::AuthError {
                     next_tick = Instant::now() + POLL_BACKOFF_MAX;
                     continue;
@@ -2592,6 +3115,9 @@ async fn worker_loop(weak: Weak<Inner>, account_id: String, mut rx: mpsc::Unboun
                         inner.sink.emit(EngineEvent::SyncStatus { account_id: account.id.clone(), syncing: false, error: None });
                         if outcome.changed > 0 {
                             inner.sink.emit(EngineEvent::MailboxChanged { account_id: account.id.clone() });
+                        }
+                        if outcome.snoozes_cancelled {
+                            mark_dirty(&inner, sections::SNOOZES);
                         }
                         let own: Vec<String> = inner.store.accounts().unwrap_or_default().into_iter().map(|a| a.email).collect();
                         let fresh: Vec<MessageMeta> = inner
@@ -3253,6 +3779,41 @@ mod tests {
     struct Quiet;
     impl EventSink for Quiet {
         fn emit(&self, _: EngineEvent) {}
+    }
+
+    #[test]
+    fn google_refused_by_the_server_means_sign_in_again() {
+        let revoked = google_server_error(CloudError::new("invalid_token", "Google refused the sign-in (invalid_grant).").into());
+        assert!(revoked.downcast_ref::<oauth::OAuthError>().is_some_and(|o| o.needs_sign_in()), "{revoked:#}");
+        let passing = google_server_error(CloudError::new("unavailable", "Google didn't answer.").into());
+        assert!(passing.downcast_ref::<oauth::OAuthError>().is_none());
+        assert_eq!(passing.downcast_ref::<CloudError>().map(|c| c.code.as_str()), Some("unavailable"));
+    }
+
+    #[tokio::test]
+    async fn credentials_are_marked_for_sync_wherever_they_are_saved() {
+        struct Spy(Mutex<Vec<String>>);
+        impl CloudLink for Spy {
+            fn mark_dirty(&self, section: &str) {
+                self.0.lock().unwrap().push(section.to_string());
+            }
+            fn google_exchange(&self, _: remail_proto::api::GoogleExchange) -> futures::future::BoxFuture<'static, Result<remail_proto::api::GoogleTokens>> {
+                Box::pin(async { bail!("not here") })
+            }
+            fn google_refresh(&self, _: String) -> futures::future::BoxFuture<'static, Result<remail_proto::api::GoogleTokens>> {
+                Box::pin(async { bail!("not here") })
+            }
+        }
+        let secrets = Arc::new(crate::secrets::MemoryStore::default());
+        let engine = Engine::with_store(Store::open_in_memory().unwrap(), secrets.clone(), Arc::new(Quiet)).unwrap();
+        let spy = Arc::new(Spy(Mutex::new(Vec::new())));
+        let link: Arc<dyn CloudLink> = spy.clone();
+        engine.set_cloud_link(Arc::downgrade(&link));
+        engine.set_credential("acc_1", "pw").unwrap();
+        engine.set_credential("cal_2", "feed-pw").unwrap();
+        assert_eq!(secrets.get("acc_1").unwrap().as_deref(), Some("pw"));
+        assert_eq!(secrets.get("cal:cal_2").unwrap().as_deref(), Some("feed-pw"), "calendar credentials keep their key");
+        assert_eq!(*spy.0.lock().unwrap(), ["cred:acc_1", "cred:cal_2"]);
     }
 
     #[tokio::test]

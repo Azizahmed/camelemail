@@ -1,16 +1,30 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from "vitest";
-import {
-  ACTIONS, PREFIX, bindingCaps, bindings, collides, conflicts, eventKey, formatBinding, hint, isDefault, keyHint, matchKey, normalize,
-  reloadShortcuts, removeBinding, reservedBy, resetAll, resetBinding, setBinding,
-} from "./shortcuts.svelte";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// Shortcuts are saved in the synced UI prefs.
+const saved: unknown[] = [];
+vi.mock("./api", () => ({
+  api: {
+    setUiPrefs: (prefs: unknown) => {
+      saved.push(prefs);
+      return Promise.resolve();
+    },
+    uiPrefs: () => Promise.resolve(null),
+  },
+}));
+
+const {
+  ACTIONS, PREFIX, applyShortcuts, bindingCaps, bindings, collides, conflicts, eventKey, formatBinding, hint, isDefault, keyHint, matchKey, normalize,
+  removeBinding, reservedBy, resetAll, resetBinding, setBinding,
+} = await import("./shortcuts.svelte");
+const lastSaved = () => (saved.at(-1) as { shortcuts: Record<string, string[]> }).shortcuts;
 
 type Mods = { ctrl?: boolean; shift?: boolean; alt?: boolean; meta?: boolean };
 const ev = (key: string, m: Mods = {}) => ({ key, ctrlKey: !!m.ctrl, shiftKey: !!m.shift, altKey: !!m.alt, metaKey: !!m.meta });
 
 beforeEach(() => {
-  localStorage.clear();
   resetAll();
+  saved.length = 0;
 });
 
 describe("notation", () => {
@@ -101,12 +115,12 @@ describe("changing keys", () => {
     setBinding("archive", "y", "e");
     expect(bindings("archive")).toEqual(["y"]);
     expect(isDefault("archive")).toBe(false);
-    expect(JSON.parse(localStorage.getItem("shortcuts")!)).toEqual({ archive: ["y"] });
+    expect(lastSaved()).toEqual({ archive: ["y"] });
     expect(matchKey(ev("y"), null)).toBe("archive");
     expect(matchKey(ev("e"), null)).toBeNull();
     resetBinding("archive");
     expect(bindings("archive")).toEqual(["e"]);
-    expect(localStorage.getItem("shortcuts")).toBeNull();
+    expect(lastSaved()).toEqual({});
   });
 
   it("adds a second key and removes one", () => {
@@ -153,9 +167,8 @@ describe("changing keys", () => {
     expect(reservedBy("e")).toBeNull();
   });
 
-  it("follows changes saved by another window", () => {
-    localStorage.setItem("shortcuts", JSON.stringify({ compose: ["Ctrl+M"], bogus: ["x"], archive: "nope" }));
-    reloadShortcuts();
+  it("follows changes saved by another window or device", () => {
+    applyShortcuts({ compose: ["Ctrl+M"], bogus: ["x"], archive: "nope" });
     expect(bindings("compose")).toEqual(["Ctrl+M"]);
     expect(bindings("archive")).toEqual(["e"]);
     expect(matchKey(ev("c"), null)).toBeNull();

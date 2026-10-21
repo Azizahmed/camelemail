@@ -51,6 +51,7 @@
   import { cellPosition, newTableHtml, normalizeTable, partState, tableAction, type Part, type TableAction } from "../../lib/table";
   import type { Account, AiSettingsView, AppSettings, Draft, OutgoingAttachment, Signature, Template } from "../../lib/types";
   import { confirmDialog, toast, toastError } from "../../lib/ui.svelte";
+  import { saveUiPrefs } from "../../lib/prefs.svelte";
   import EmailFrame from "../thread/EmailFrame.svelte";
   import Popover from "../menus/Popover.svelte";
   import SendLaterMenu from "../menus/SendLaterMenu.svelte";
@@ -380,7 +381,7 @@
     clearTimeout(saveTimer);
     closed = true;
     try {
-      localStorage.setItem("lastComposeAccount", d.accountId);
+      void saveUiPrefs({ lastComposeAccount: d.accountId });
       await api.send(outgoing(true), scheduleAt);
       if (scheduleAt) toast(`Scheduled for ${wakeDate(scheduleAt)}`);
       onclose("sent");

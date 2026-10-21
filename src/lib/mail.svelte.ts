@@ -22,21 +22,15 @@ import type {
   ThreadSummary,
 } from "./types";
 import { applyTheme, toast, toastError } from "./ui.svelte";
+import { applyLanguageSetting } from "./i18n.svelte";
+import { loadUiPrefs, onUiPrefs, saveUiPrefs, uiPrefs } from "./prefs.svelte";
 
 export type Page = "list" | "search" | "scheduled" | "unsubscribe";
 
 const PAGE_SIZE = 100;
 
-/** Sidebar entries tucked under "More" (folder keys look like `folder:<account>:<id>`). */
-function loadHidden(): string[] {
-  try {
-    const v = JSON.parse(localStorage.getItem("sidebarHidden") ?? "null");
-    if (Array.isArray(v)) return v.filter((x) => typeof x === "string");
-  } catch {
-    /* default below */
-  }
-  return [L.SPAM, L.TRASH];
-}
+/** Sidebar entries tucked under "More" (folder keys look like `folder:<account>:<id>`), synced in the UI prefs. */
+const hiddenOf = (v: string[] | null) => v ?? [L.SPAM, L.TRASH];
 
 export const SIDEBAR_MIN = 190;
 export const SIDEBAR_MAX = 420;
@@ -76,7 +70,7 @@ class MailState {
   /** Reply being written inside the thread view. */
   inlineDraft = $state<Draft | null>(null);
   removing = new SvelteSet<string>();
-  sidebarHidden = $state(loadHidden());
+  sidebarHidden = $state(hiddenOf(uiPrefs.sidebarHidden));
   online = $state(navigator.onLine);
   /** Smart Inbox: which half of the Inbox is shown, and an optional bucket of Other. */
   smart = $state({
@@ -91,6 +85,8 @@ class MailState {
 }
 
 export const mail = new MailState();
+
+onUiPrefs((p) => (mail.sidebarHidden = hiddenOf(p.sidebarHidden)));
 
 export function showCalendar() {
   mail.space = "calendar";
@@ -635,7 +631,7 @@ export async function unsnooze(refs: ThreadRef[] = targets()) {
 // ---------------------------------------------------------------------------
 
 function composeAccount(): string | null {
-  return mail.view.accountId ?? localStorage.getItem("lastComposeAccount") ?? null;
+  return mail.view.accountId ?? uiPrefs.lastComposeAccount ?? null;
 }
 
 export async function compose(mailto?: string) {
@@ -800,6 +796,10 @@ async function handleEvent(e: EngineEvent) {
       });
       break;
     }
+    case "settingsChanged":
+      // Changed on another device.
+      await reloadSynced();
+      break;
     case "newMail":
     case "openCompose":
       break;
@@ -822,27 +822,43 @@ export function aiAvailable(): boolean {
   return false;
 }
 
+/** Settings and UI prefs changed elsewhere: take them up. */
+async function reloadSynced() {
+  try {
+    applySettings(await api.getSettings());
+  } catch (e) {
+    console.warn("Couldn't reload settings", e);
+  }
+  await loadUiPrefs().catch(() => {});
+}
+
+function applySettings(s: AppSettings) {
+  const smartChanged = !!mail.settings && mail.settings.smartInbox !== s.smartInbox;
+  mail.settings = s;
+  applyTheme(s.theme);
+  applyLanguageSetting(s.language);
+  mail.threadVersion++;
+  if (smartChanged) {
+    viewGen++;
+    mail.threads = [];
+    void refreshThreads();
+    void refreshSmartCounts();
+  }
+}
+
 export async function initMail() {
   const settings = await api.getSettings();
   mail.settings = settings;
   applyTheme(settings.theme);
+  applyLanguageSetting(settings.language);
+  // Synced UI prefs (shortcuts, hidden sidebar entries); this window also moves old localStorage values up.
+  await loadUiPrefs({ migrate: true }).catch((e) => console.warn("Couldn't load UI prefs", e));
   await refreshMeta();
   await refreshOutbox();
   sending.items = mail.outbox.filter((i) => i.kind === "undo");
   if (mail.accounts.length === 1) mail.view = { accountId: null, label: L.INBOX };
   await onEngineEvent((e) => void handleEvent(e));
-  await listen<AppSettings>("settings-changed", (e) => {
-    const smartChanged = mail.settings?.smartInbox !== e.payload.smartInbox;
-    mail.settings = e.payload;
-    applyTheme(e.payload.theme);
-    mail.threadVersion++;
-    if (smartChanged) {
-      viewGen++;
-      mail.threads = [];
-      void refreshThreads();
-      void refreshSmartCounts();
-    }
-  });
+  await listen<AppSettings>("settings-changed", (e) => applySettings(e.payload));
   try {
     applyAi(await api.aiSettings());
   } catch {
@@ -901,7 +917,7 @@ export function isHidden(key: string) {
 /** Move a sidebar entry under "More", or back out of it. */
 export function toggleHidden(key: string) {
   mail.sidebarHidden = isHidden(key) ? mail.sidebarHidden.filter((k) => k !== key) : [...mail.sidebarHidden, key];
-  localStorage.setItem("sidebarHidden", JSON.stringify(mail.sidebarHidden));
+  void saveUiPrefs({ sidebarHidden: $state.snapshot(mail.sidebarHidden) });
 }
 
 export async function runServerSearch() {

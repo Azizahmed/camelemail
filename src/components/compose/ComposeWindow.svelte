@@ -5,6 +5,7 @@
   import { api, errorText } from "../../lib/api";
   import type { AppSettings, Draft } from "../../lib/types";
   import { applyTheme } from "../../lib/ui.svelte";
+  import { applyLanguageSetting } from "../../lib/i18n.svelte";
   import ConfirmDialog from "../ConfirmDialog.svelte";
   import Toasts from "../Toasts.svelte";
   import Composer from "./Composer.svelte";
@@ -22,12 +23,18 @@
       try {
         const s = await api.getSettings();
         applyTheme(s.theme);
+        applyLanguageSetting(s.language);
         draft = await api.getDraft(draftId);
         if (!draft) error = "This draft no longer exists.";
       } catch (e) {
         error = errorText(e);
       }
-      unlisten.push(await listen<AppSettings>("settings-changed", (e) => applyTheme(e.payload.theme)));
+      unlisten.push(
+        await listen<AppSettings>("settings-changed", (e) => {
+          applyTheme(e.payload.theme);
+          applyLanguageSetting(e.payload.language);
+        }),
+      );
       unlisten.push(
         await win.onCloseRequested(async (e) => {
           if (!composer) return;
@@ -65,7 +72,8 @@
 
 <svelte:window onkeydown={onKey} />
 
-<div class="compose-window">
+<!-- Not translated yet: left-to-right layout in Arabic too (text follows its own direction). -->
+<div class="compose-window" dir="ltr">
   {#if draft}
     <div class="inner">
       <Composer bind:this={composer} {draft} variant="window" onclose={done} onsubject={(s) => (subject = s)} />

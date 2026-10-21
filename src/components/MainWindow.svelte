@@ -27,7 +27,7 @@
   } from "../lib/mail.svelte";
   import { bindingCaps, bindings, eventKey, isModifierKey, matchKey, PREFIX, PREFIX_TIMEOUT, type MatchOptions } from "../lib/shortcuts.svelte";
   import { isTyping, toastError } from "../lib/ui.svelte";
-  import AccountSetup from "./AccountSetup.svelte";
+  import FirstMailbox from "./auth/FirstMailbox.svelte";
   import type CalendarViewType from "./calendar/CalendarView.svelte";
   import CommandPalette from "./CommandPalette.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
@@ -406,19 +406,12 @@
 {:else if !mail.ready}
   <div class="center"><span class="spinner"></span></div>
 {:else if mail.accounts.length === 0 && mail.space === "mail"}
-  <div class="welcome">
-    <div class="hero">
-      <img class="logo" src="/brand/remail-mark.png" alt="Remail" />
-      <h1>Welcome to Remail</h1>
-      <p>Fast, private email for every IMAP account — with a unified inbox, snooze, send later, undo send and one-click unsubscribe.</p>
-    </div>
-    <div class="setup-card">
-      <AccountSetup mode="add" ondone={() => { void refreshMeta().then(() => navigate(null, L.INBOX)); }} />
-    </div>
-    <button class="cal-only" onclick={showCalendar}>Only need a calendar? Open the calendar</button>
-  </div>
+  <FirstMailbox ondone={() => { void refreshMeta().then(() => navigate(null, L.INBOX)); }} oncalendar={showCalendar} />
 {:else}
-  <div class="app" class:docked={mail.sidebarDocked} style:--sidenav-width="{mail.sidebarWidth}px">
+  <!-- The mail and calendar screens aren't translated yet (design.md, Q3), so they
+       keep their left-to-right layout in Arabic; text inside still follows its own
+       direction (lib/bidi.ts). -->
+  <div class="app" dir="ltr" class:docked={mail.sidebarDocked} style:--sidenav-width="{mail.sidebarWidth}px">
     <Sidebar />
     {#if calendarShown && CalendarView}
       <CalendarView bind:this={calView} />
@@ -469,15 +462,20 @@
   </div>
 {/if}
 
-{#if mail.modal === "palette"}
-  <CommandPalette onsearch={() => { showMail(); header?.focusSearch(); }} />
-{:else if mail.modal === "help"}
-  <ShortcutsHelp />
-{/if}
+<div class="contents" dir="ltr">
+  {#if mail.modal === "palette"}
+    <CommandPalette onsearch={() => { showMail(); header?.focusSearch(); }} />
+  {:else if mail.modal === "help"}
+    <ShortcutsHelp />
+  {/if}
+</div>
 <ConfirmDialog />
 <Toasts />
 
 <style>
+  .contents {
+    display: contents;
+  }
   .app {
     height: 100vh;
     display: flex;
@@ -494,17 +492,6 @@
   }
   .mail-space.away {
     display: none;
-  }
-  .cal-only {
-    margin-top: 18px;
-    border: none;
-    background: none;
-    color: var(--content-subtle);
-    font-size: 13px;
-    text-decoration: underline;
-  }
-  .cal-only:hover {
-    color: var(--accent);
   }
   .body {
     flex: 1;
@@ -589,40 +576,5 @@
   }
   .err-card b {
     color: var(--content);
-  }
-  .welcome {
-    height: 100vh;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 7vh 20px 40px;
-    background: radial-gradient(1200px 500px at 50% -10%, var(--accent-soft), transparent 70%), var(--surface);
-  }
-  .hero {
-    text-align: center;
-    max-width: 520px;
-  }
-  .logo {
-    display: block;
-    width: 76px;
-    height: 70px;
-    margin: 0 auto 16px;
-    object-fit: contain;
-    filter: drop-shadow(0 10px 24px rgba(255, 124, 25, 0.28));
-  }
-  h1 {
-    font-size: 26px;
-    margin: 0 0 8px;
-    letter-spacing: -0.3px;
-  }
-  .hero p {
-    color: var(--content-subtle);
-    font-size: 14px;
-    line-height: 21px;
-    margin: 0 0 24px;
-  }
-  .setup-card {
-    width: min(520px, 100%);
   }
 </style>

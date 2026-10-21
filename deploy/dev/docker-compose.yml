@@ -1,0 +1,55 @@
+# Local development: Postgres + remail-server on http://127.0.0.1:8080 (no TLS).
+#
+#   docker compose -f deploy/dev/docker-compose.yml up -d --build
+#   docker compose -f deploy/dev/docker-compose.yml logs server   # first-start invite (on-prem)
+#
+# Or run only Postgres and the server from source:
+#   docker compose -f deploy/dev/docker-compose.yml up -d postgres
+#   DATABASE_URL=postgres://remail:remail@127.0.0.1:55432/remail cargo run -p remail-server -- serve
+#
+# The master key lives in its own volume, apart from the database volume, as in production.
+name: remail-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: remail
+      POSTGRES_PASSWORD: remail
+      POSTGRES_DB: remail
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "remail"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  server:
+    build:
+      context: ../..
+      dockerfile: deploy/dev/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://remail:remail@postgres:5432/remail
+      # hosted = open sign-up with e-mail verification; onprem = invite-only, one org.
+      REMAIL_MODE: ${REMAIL_MODE:-hosted}
+      REMAIL_BIND: 0.0.0.0:8080
+      REMAIL_PUBLIC_URL: http://127.0.0.1:8080
+      REMAIL_MASTER_KEY_FILE: /etc/remail/master.key
+      # Optional: smtp://user:pass@host:587 (lettre URL). Without it, mail is not sent.
+      REMAIL_SMTP_URL: ${REMAIL_SMTP_URL:-}
+      REMAIL_MAIL_FROM: ${REMAIL_MAIL_FROM:-Remail <no-reply@localhost>}
+      RUST_LOG: info,sqlx=warn
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - keys:/etc/remail
+
+volumes:
+  pgdata:
+  keys:

@@ -90,6 +90,8 @@ struct Reply {
 pub struct CalDavClient {
     http: reqwest::Client,
     creds: DavCredentials,
+    /// OAuth access token sent instead of the password (Google Calendar).
+    bearer: Option<String>,
 }
 
 impl CalDavClient {
@@ -102,7 +104,14 @@ impl CalDavClient {
             .redirect(reqwest::redirect::Policy::none())
             .danger_accept_invalid_certs(creds.allow_invalid_certs)
             .build()?;
-        Ok(CalDavClient { http, creds })
+        Ok(CalDavClient { http, creds, bearer: None })
+    }
+
+    /// A client that signs in with an OAuth access token (`Authorization: Bearer`).
+    pub fn with_bearer(token: String, allow_invalid_certs: bool) -> Result<CalDavClient> {
+        let mut c = Self::new(DavCredentials { username: String::new(), password: String::new(), allow_invalid_certs })?;
+        c.bearer = Some(token);
+        Ok(c)
     }
 
     /// Candidate start URLs for discovery: provider presets first, then RFC 6764 well-known URLs.
@@ -424,7 +433,10 @@ impl CalDavClient {
         for _ in 0..=MAX_REDIRECTS {
             let mut req = self.http.request(method.clone(), url.clone());
             if with_auth {
-                req = req.basic_auth(&self.creds.username, Some(&self.creds.password));
+                req = match &self.bearer {
+                    Some(token) => req.bearer_auth(token),
+                    None => req.basic_auth(&self.creds.username, Some(&self.creds.password)),
+                };
             }
             if let Some(d) = depth {
                 req = req.header("Depth", d);

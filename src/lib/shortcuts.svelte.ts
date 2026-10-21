@@ -1,10 +1,13 @@
 // Keyboard shortcuts: the actions you can rebind, their default keys, and the
-// keys that stay fixed. Changes are saved in localStorage (shared by every
-// window), so the Settings window edits them and the main window follows live.
+// keys that stay fixed. Changes are saved in the synced UI prefs (see
+// prefs.svelte.ts), so they follow the user to other devices; the main window
+// reloads them on focus, so edits made in the Settings window apply there.
 //
 // A binding is a string: a single key as `KeyboardEvent.key` ("e", "#", "J",
 // "?"), a combination like "Ctrl+K" or "Ctrl+\\", or two keys pressed one after
 // the other, separated by a space: "g i".
+
+import { loadUiPrefs, onUiPrefs, saveUiPrefs, uiPrefs } from "./prefs.svelte";
 
 export type ShortcutGroup = "Navigation" | "Actions" | "Selection" | "Calendar" | "Windows & Search";
 
@@ -139,7 +142,6 @@ export const PREFIX_TIMEOUT = 1500;
 /** What `matchKey` returns for the first key of a two-key shortcut. */
 export const PREFIX = "prefix";
 
-const STORAGE_KEY = "shortcuts";
 const byId = new Map(ACTIONS.map((a) => [a.id, a]));
 
 // ---------------------------------------------------------------------------
@@ -212,38 +214,36 @@ const hasCtrl = (step: string) => step.startsWith("Ctrl+");
 // The keymap
 // ---------------------------------------------------------------------------
 
-function load(): Record<string, string[]> {
-  try {
-    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
-    const out: Record<string, string[]> = {};
-    if (raw && typeof raw === "object")
-      for (const [id, list] of Object.entries(raw))
-        if (byId.has(id) && Array.isArray(list)) out[id] = list.filter((b): b is string => typeof b === "string" && b.trim() !== "").map(normalize);
-    return out;
-  } catch {
-    return {};
-  }
+/** Only actions this build knows, with their keys spelled canonically. */
+function sanitize(raw: unknown): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  if (raw && typeof raw === "object")
+    for (const [id, list] of Object.entries(raw))
+      if (byId.has(id) && Array.isArray(list)) out[id] = list.filter((b): b is string => typeof b === "string" && b.trim() !== "").map(normalize);
+  return out;
 }
 
 /** Only the actions you changed; everything else uses its defaults. */
-const keys = $state<{ overrides: Record<string, string[]> }>({ overrides: typeof localStorage === "undefined" ? {} : load() });
+const keys = $state<{ overrides: Record<string, string[]> }>({ overrides: sanitize(uiPrefs.shortcuts) });
 
 function save() {
-  const o = $state.snapshot(keys.overrides);
-  if (Object.keys(o).length === 0) localStorage.removeItem(STORAGE_KEY);
-  else localStorage.setItem(STORAGE_KEY, JSON.stringify(o));
+  void saveUiPrefs({ shortcuts: $state.snapshot(keys.overrides) });
 }
 
-/** Pick up changes saved by another window (the Settings window edits, the main window follows). */
+/** Use overrides loaded from the synced prefs (or saved by another window or device). */
+export function applyShortcuts(raw: unknown) {
+  keys.overrides = sanitize(raw);
+}
+
+onUiPrefs((p) => applyShortcuts(p.shortcuts));
+
+/** Pick up changes saved elsewhere (the Settings window edits, the main window follows). */
 export function reloadShortcuts() {
-  keys.overrides = load();
+  if (uiPrefs.loaded) void loadUiPrefs().catch(() => {});
 }
 
 if (typeof window !== "undefined") {
-  window.addEventListener("storage", (e) => {
-    if (e.key === STORAGE_KEY || e.key === null) reloadShortcuts();
-  });
-  // A safety net in case a webview doesn't deliver the storage event.
+  // Settings saved in another window: reload when this one comes back to the front.
   window.addEventListener("focus", reloadShortcuts);
 }
 

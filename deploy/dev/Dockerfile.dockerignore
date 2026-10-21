@@ -1,0 +1,10 @@
+# Only what the server build needs.
+**
+!Cargo.toml
+!Cargo.lock
+!crates/
+!src-tauri/
+!deploy/dev/entrypoint.sh
+crates/*/target
+src-tauri/target
+src-tauri/gen

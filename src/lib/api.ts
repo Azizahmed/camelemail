@@ -10,6 +10,15 @@ import type {
   AiTask,
   AppSettings,
   ChatEvent,
+  CloudEvent,
+  CloudStatus,
+  Device,
+  LoginResult,
+  Me,
+  Meta,
+  MigrationInfo,
+  ProviderOption,
+  UiPrefs,
   ImportedServer,
   McpSettings,
   McpStatus,
@@ -71,6 +80,8 @@ export const api = {
   addAccount: (account: NewAccount) => invoke<Account>("add_account", { account }),
   updateAccount: (id: string, account: NewAccount) => invoke<void>("update_account", { id, account }),
   addMicrosoftAccount: (req: OAuthAccountRequest) => invoke<OAuthAccountAdded>("add_microsoft_account", { req }),
+  /** Google sign-in in the browser (OAuth, the org's client ID). */
+  addGoogleAccount: (displayName: string | null) => invoke<OAuthAccountAdded | Account>("add_google_account", { displayName }),
   reauthorizeAccount: (id: string) => invoke<void>("reauthorize_account", { id }),
   cancelSignIn: () => invoke<void>("cancel_sign_in"),
   microsoftSignInReady: () => invoke<boolean>("microsoft_sign_in_ready"),
@@ -161,6 +172,40 @@ export const api = {
   aiChatReset: (conversationId: string) => invoke<void>("ai_chat_reset", { conversationId }),
   aiApprove: (callId: string, allow: boolean) => invoke<void>("ai_approve", { callId, allow }),
 
+  // Remail account (docs/platform/client-contract.md). Server errors reject
+  // with "cloud:<code>:<message>"; show them with errMessage() from i18n.
+  cloudStatus: () => invoke<CloudStatus>("cloud_status"),
+  /** A URL, a bare host or an organisation code. Saves the server. */
+  cloudSetServer: (address: string) => invoke<Meta>("cloud_set_server", { address }),
+  cloudSignup: (req: { name: string; email: string; password: string; invite: string | null; locale: string }) =>
+    invoke<{ verify: "email" | "none" }>("cloud_signup", req),
+  cloudVerifyEmail: (token: string) => invoke<void>("cloud_verify_email", { token }),
+  cloudLogin: (email: string, password: string) => invoke<LoginResult>("cloud_login", { email, password }),
+  cloudLogin2fa: (challenge: string, code: string) => invoke<{ me: Me }>("cloud_login_2fa", { challenge, code }),
+  /** Wipes this device's synced setup and credentials, and stops mail. */
+  cloudLogout: () => invoke<void>("cloud_logout"),
+  cloudRequestReset: (email: string) => invoke<void>("cloud_request_reset", { email }),
+  cloudResetPassword: (token: string, password: string) => invoke<void>("cloud_reset_password", { token, password }),
+  cloudMe: () => invoke<Me>("cloud_me"),
+  cloudUpdateMe: (name: string) => invoke<Me>("cloud_update_me", { name }),
+  cloudChangePassword: (current: string, next: string) => invoke<void>("cloud_change_password", { current, new: next }),
+  /** With a challenge: the setup a required-2FA sign-in asks for. */
+  cloudTotpSetup: (challenge: string | null = null) => invoke<{ secret: string; otpauthUrl: string }>("cloud_totp_setup", { challenge }),
+  /** With a challenge it also completes the sign-in. */
+  cloudTotpEnable: (code: string, challenge: string | null = null) => invoke<{ backupCodes: string[] }>("cloud_totp_enable", { code, challenge }),
+  cloudTotpDisable: (password: string, code: string) => invoke<void>("cloud_totp_disable", { password, code }),
+  cloudDevices: () => invoke<Device[]>("cloud_devices"),
+  cloudRevokeDevice: (id: string) => invoke<void>("cloud_revoke_device", { id }),
+  /** What "Add account" may offer (the cached org config when offline). */
+  cloudProviders: () => invoke<ProviderOption[]>("cloud_providers"),
+  cloudMigration: () => invoke<MigrationInfo>("cloud_migration"),
+  /** `upload: false` discards this computer's setup and takes the server's. */
+  cloudMigrate: (upload: boolean) => invoke<void>("cloud_migrate", { upload }),
+  cloudSyncNow: () => invoke<void>("cloud_sync_now"),
+  // One queue: two quick changes don't land the wrong way round, and a reload waits for saves.
+  uiPrefs: () => invokeInOrder<UiPrefs | null>("ui_prefs", undefined, "ui_prefs"),
+  setUiPrefs: (prefs: Partial<UiPrefs>) => invokeInOrder<void>("set_ui_prefs", { prefs }, "ui_prefs"),
+
   mcpSettings: () => invoke<McpSettings>("mcp_settings"),
   setMcpSettings: (settings: McpSettings) => invoke<McpStatus>("set_mcp_settings", { settings }),
   mcpStatus: () => invoke<McpStatus>("mcp_status"),
@@ -176,6 +221,10 @@ export const newRequestId = () => `req-${Date.now().toString(36)}-${++reqSeq}`;
 
 export function onEngineEvent(cb: (e: EngineEvent) => void): Promise<UnlistenFn> {
   return listen<EngineEvent>("engine-event", (e) => cb(e.payload));
+}
+
+export function onCloudEvent(cb: (e: CloudEvent) => void): Promise<UnlistenFn> {
+  return listen<CloudEvent>("cloud-event", (e) => cb(e.payload));
 }
 
 /** Error text from a rejected invoke. */

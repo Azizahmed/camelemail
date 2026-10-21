@@ -412,3 +412,85 @@ kbd {
     transform: translateY(8px);
   }
 }
+
+/* ---------- forms on the sign-in screens and in Account settings ----------
+   Logical properties only, so right-to-left layouts mirror. */
+
+.au-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.au-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.au-field > label,
+.au-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--content-subtle);
+}
+.au-help {
+  margin: 0;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--content-subtle);
+}
+.au-error,
+.au-info {
+  padding: 9px 10px;
+  border-radius: var(--radius-lg);
+  font-size: 12.5px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+.au-error {
+  background: color-mix(in srgb, var(--indicator-error) 12%, transparent);
+  color: var(--indicator-error);
+}
+.au-info {
+  background: var(--accent-soft);
+  color: var(--content);
+}
+.au-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.au-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.au-link:focus-visible,
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.au-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.btn.block {
+  width: 100%;
+  height: 36px;
+  justify-content: center;
+}
+/* Addresses, codes and passwords read left to right, aligned with the page. */
+[dir="rtl"] .input[dir="ltr"] {
+  text-align: right;
+}
+/* Arrows and chevrons that point "forward" or "back". */
+[dir="rtl"] .rtl-flip {
+  transform: scaleX(-1);
+}

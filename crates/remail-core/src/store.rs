@@ -225,6 +225,17 @@ CREATE TABLE IF NOT EXISTS sender_rules (
   category TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+-- Setup sections from the Remail server (cloud::cache): the merged document,
+-- AES-256-GCM encrypted with this device's cache key.
+CREATE TABLE IF NOT EXISTS cloud_sections (
+  id TEXT PRIMARY KEY,
+  version INTEGER NOT NULL DEFAULT 0,
+  doc_json_encrypted BLOB NOT NULL,
+  -- Local changes the server hasn't taken yet.
+  dirty INTEGER NOT NULL DEFAULT 0,
+  last_sync INTEGER NOT NULL DEFAULT 0
+);
 "#;
 
 fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
@@ -407,6 +418,16 @@ pub struct QueuedOp {
     pub account_id: String,
     pub op_json: String,
     pub attempts: i64,
+}
+
+/// The synced, cosmetic part of an account row.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AccountLook {
+    pub color: String,
+    pub sort_order: i64,
+    pub hidden_in_unified: bool,
+    pub auto_bcc: Vec<String>,
+    pub created_at: i64,
 }
 
 pub struct Store {
@@ -625,6 +646,11 @@ impl Store {
         Ok(())
     }
 
+    pub fn delete_setting(&self, key: &str) -> Result<()> {
+        self.db().execute("DELETE FROM settings WHERE key = ?", [key])?;
+        Ok(())
+    }
+
     // ------------------------------------------------------------------
     // Accounts
     // ------------------------------------------------------------------
@@ -661,6 +687,66 @@ impl Store {
         )?;
         drop(db);
         self.account(&id)?.context("account vanished after insert")
+    }
+
+    /// Insert an account that already has an id (synced from the Remail
+    /// server, which is the authority for ids). Device-only columns start fresh.
+    pub fn insert_account_with_id(&self, id: &str, a: &NewAccount, is_gmail: bool, auth: &str, look: &AccountLook) -> Result<Account> {
+        let username = if a.username.trim().is_empty() { a.email.trim() } else { a.username.trim() };
+        self.db().execute(
+            "INSERT INTO accounts(id, email, display_name, username, imap_host, imap_port, imap_security,
+               smtp_host, smtp_port, smtp_security, allow_invalid_certs, color, sort_order, hidden_in_unified, auto_bcc,
+               is_gmail, created_at, auth)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            params![
+                id,
+                a.email.trim().to_lowercase(),
+                a.display_name.trim(),
+                username,
+                a.imap.host.trim(),
+                a.imap.port,
+                a.imap.security.as_str(),
+                a.smtp.host.trim(),
+                a.smtp.port,
+                a.smtp.security.as_str(),
+                a.allow_invalid_certs,
+                look.color,
+                look.sort_order,
+                look.hidden_in_unified,
+                to_json(&look.auto_bcc),
+                is_gmail,
+                look.created_at,
+                auth
+            ],
+        )?;
+        self.account(id)?.context("account vanished after insert")
+    }
+
+    /// Give a local account another id (the one the Remail server knows it
+    /// by), with everything that refers to it: mail, folders, drafts, outbox,
+    /// snoozes, signatures and calendars.
+    pub fn remap_account_id(&self, old: &str, new: &str) -> Result<()> {
+        let mut db = self.db();
+        let tx = db.transaction()?;
+        // Children point at the old id until the parent row moves too.
+        tx.execute_batch("PRAGMA defer_foreign_keys = ON;")?;
+        for table in ["folders", "folder_state", "messages", "snoozes", "drafts", "outbox", "op_queue", "autoclean_exempt", "signatures"] {
+            tx.execute(&format!("UPDATE {table} SET account_id = ?1 WHERE account_id = ?2"), params![new, old])?;
+        }
+        tx.execute("UPDATE cal_accounts SET mail_account_id = ?1 WHERE mail_account_id = ?2", params![new, old])?;
+        tx.execute("UPDATE accounts SET id = ?1 WHERE id = ?2", params![new, old])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Order, colour and unified-inbox choice of an account, set together on
+    /// accounts that come from another device.
+    pub fn set_account_look(&self, id: &str, look: &AccountLook) -> Result<()> {
+        self.db().execute(
+            "UPDATE accounts SET color = ?, sort_order = ?, hidden_in_unified = ?, auto_bcc = ? WHERE id = ?",
+            params![look.color, look.sort_order, look.hidden_in_unified, to_json(&look.auto_bcc), id],
+        )?;
+        Ok(())
     }
 
     /// How the account signs in: `password` or an OAuth provider id.

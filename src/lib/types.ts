@@ -33,7 +33,7 @@ export interface Account {
   hiddenInUnified: boolean;
   autoBcc: string[];
   isGmail: boolean;
-  /** "password", or the OAuth provider that signs it in ("microsoft"). */
+  /** "password", or the OAuth provider that signs it in ("microsoft", "google"). */
   auth: string;
   status: AccountStatus;
   lastError: string | null;
@@ -292,10 +292,8 @@ export interface AppSettings {
   notifyImportantOnly: boolean;
   autoClean: AutoClean;
   calendar: import("./calendar.svelte").CalendarPrefs;
-  /** App (client) ID for "Sign in with Microsoft"; empty: the built-in one. */
-  microsoftClientId: string;
-  /** Admin: the email providers accounts may be added for. */
-  providers: ProviderAccess;
+  /** The app's language (synced). Older servers or builds may leave it out. */
+  language?: "en" | "ar" | "system";
 }
 
 export type CleanKind = "promotions" | "updates" | "social" | "forums" | "otp";
@@ -339,7 +337,9 @@ export type EngineEvent =
   | { type: "sendFailed"; accountId: string; subject: string; error: string }
   | { type: "snoozeWoke"; accountId: string; threadId: string; subject: string }
   | { type: "openCompose"; draftId: string }
-  | { type: "autoCleaned"; threads: ThreadRef[]; messages: string[]; action: "trash" | "archive" };
+  | { type: "autoCleaned"; threads: ThreadRef[]; messages: string[]; action: "trash" | "archive" }
+  /** `prefs` or `shortcuts` changed on another device: reload settings and UI prefs. */
+  | { type: "settingsChanged" };
 
 /** System label ids (crates/remail-core/src/model.rs `labels`). */
 export const L = {
@@ -445,8 +445,125 @@ export interface ImportedServer {
   config: McpServerConfig;
 }
 
-export interface ProviderAccess {
-  gmail: boolean;
-  outlook: boolean;
-  other: boolean;
+
+// ---------------------------------------------------------------------------
+// Remail account (docs/platform/client-contract.md, crates/remail-proto)
+// ---------------------------------------------------------------------------
+
+export interface AiPolicy {
+  enabled: boolean;
+  features: string[];
+  monthlyRequestsPerUser: number;
+  monthlyTokensPerUser: number;
 }
+
+export interface Policies {
+  require2fa: boolean;
+  sessionDays: number;
+  platforms: string[];
+  notificationPreview: boolean;
+  deviceCacheDays: number;
+  ai: AiPolicy;
+  mcp: boolean;
+}
+
+/** The signed-in Remail user (proto `api::Me`). */
+export interface Me {
+  id: string;
+  name: string;
+  email: string;
+  role: "owner" | "admin" | "user";
+  orgId: string;
+  orgName: string;
+  /** Two-step verification is on. */
+  totp: boolean;
+  policies: Policies;
+}
+
+export type CloudPhase = "signedOut" | "migrate" | "syncing" | "ready";
+
+export interface CloudStatus {
+  /** Base URL in use; null = not chosen yet. */
+  server: string | null;
+  /** Build-time default (REMAIL_SERVER), if any. */
+  defaultServer: string | null;
+  signedIn: boolean;
+  me: Me | null;
+  phase: CloudPhase;
+  /** The server can't be reached (the cached setup is in use). */
+  offline: boolean;
+  /** First sync after signing in. */
+  progress: { done: number; total: number; label: string } | null;
+}
+
+export type LicenceState = "none" | "valid" | "warning" | "grace" | "expired" | "invalid";
+
+/** `GET /v1/meta` (proto `api::Meta`). */
+export interface Meta {
+  mode: "hosted" | "onprem";
+  version: string;
+  /** Oldest client version the server still talks to. */
+  minClient: string;
+  orgName?: string | null;
+  signup: "open" | "invite";
+  /** E-mail must be confirmed before signing in. */
+  verifyEmail: boolean;
+  licence: LicenceState;
+}
+
+export type LoginResult = { status: "ok"; me: Me } | { status: "2fa"; challenge: string; setupRequired: boolean };
+
+export interface Device {
+  id: string;
+  name: string;
+  /** linux | windows | macos | ios | android */
+  platform: string;
+  appVersion: string;
+  createdAt: number;
+  lastSeenAt: number | null;
+  current: boolean;
+}
+
+/** A mail server the organisation lists for "Other email" (proto `org::ServerPreset`). */
+export interface ServerPreset {
+  name: string;
+  /** E-mail domain it applies to; empty = any. */
+  domain: string;
+  imapHost: string;
+  imapPort: number;
+  imapSecurity: Security;
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecurity: Security;
+  /** CalDAV base URL; empty = no calendar. */
+  caldavUrl: string;
+}
+
+export type ProviderKind = "google" | "microsoft" | "imap";
+
+/** One entry of "Add mailbox" (proto `api::ProviderOption`). */
+export interface ProviderOption {
+  kind: ProviderKind;
+  enabled: boolean;
+  oauth?: { clientId: string; tenant: string };
+  /** `imap`: may people type any server, or only pick a preset? */
+  manualServers: boolean;
+  presets: ServerPreset[];
+  serverExchange: boolean;
+}
+
+export interface MigrationInfo {
+  localAccounts: number;
+  serverAccounts: number;
+}
+
+/** UI preferences that follow the user (they used to live in localStorage). */
+export interface UiPrefs {
+  shortcuts: Record<string, string[]>;
+  sidebarHidden: string[] | null;
+  lastComposeAccount: string | null;
+}
+
+export type CloudEvent =
+  | { kind: "status"; status: CloudStatus }
+  | { kind: "signedOut"; reason: "revoked" | "expired" | "user" };

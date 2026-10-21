@@ -5,12 +5,15 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import {
     Users, SlidersHorizontal, PenLine, FileText, Clock, Info, Plus, Trash2, ChevronRight,
-    Bold, Italic, Underline, Link as LinkIcon, Code, Check, X, RotateCcw, Plug, Eraser, CalendarDays, Keyboard, ShieldCheck,
+    Bold, Italic, Underline, Link as LinkIcon, Code, Check, X, RotateCcw, Plug, Eraser, CalendarDays, Keyboard, Sparkles, CircleUserRound,
   } from "@lucide/svelte";
-  import { api } from "../../lib/api";
+  import { api, onEngineEvent } from "../../lib/api";
   import { directEditor } from "../../lib/bidi";
+  import { applyLanguageSetting, i18n, LOCALES, setLocale, t, type Locale, type MessageKey } from "../../lib/i18n.svelte";
+  import { loadUiPrefs } from "../../lib/prefs.svelte";
   import { applyTheme, confirmDialog, toast, toastError } from "../../lib/ui.svelte";
-  import { BUCKET_NAMES, type Account, type AppSettings, type CleanKind, type ProviderAccess, type SenderRule, type Signature, type Template } from "../../lib/types";
+  import { BUCKET_NAMES, type Account, type AppSettings, type CleanKind, type SenderRule, type Signature, type Template } from "../../lib/types";
+  import AccountSettings from "./AccountSettings.svelte";
   import AccountSetup from "../AccountSetup.svelte";
   import AiSettings from "./AiSettings.svelte";
   import CalendarSettings from "./CalendarSettings.svelte";
@@ -22,8 +25,10 @@
 
   let { initialSection }: { initialSection?: string } = $props();
 
-  const SECTIONS = [
-    { id: "accounts", label: "Accounts", icon: Users },
+  // Sections with a `key` are translated; the rest are English until the app's translation milestone.
+  const SECTIONS: readonly { id: string; label: string; key?: MessageKey; icon: typeof Users }[] = [
+    { id: "account", label: "Account", key: "settings.account", icon: CircleUserRound },
+    { id: "accounts", label: "Mailboxes", icon: Users },
     { id: "general", label: "General", icon: SlidersHorizontal },
     { id: "autoclean", label: "Auto-clean", icon: Eraser },
     { id: "calendar", label: "Calendar", icon: CalendarDays },
@@ -32,30 +37,21 @@
     { id: "templates", label: "Templates", icon: FileText },
     { id: "snooze", label: "Snooze", icon: Clock },
     { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
-    { id: "admin", label: "Admin", icon: ShieldCheck },
+    { id: "ai", label: "AI assistance", key: "settings.ai", icon: Sparkles },
     { id: "about", label: "About", icon: Info },
-  ] as const;
-  type SectionId = (typeof SECTIONS)[number]["id"];
-  const isSection = (s: unknown): s is SectionId => SECTIONS.some((x) => x.id === s);
-  /** Older links ("ai") open where that setting lives now. */
-  const sectionFor = (s: unknown): SectionId | null => (s === "ai" ? "admin" : isSection(s) ? s : null);
-
-  const PROVIDERS: { key: keyof ProviderAccess; label: string; desc: string }[] = [
-    { key: "gmail", label: "Gmail", desc: "Gmail and Google Workspace, with an app password." },
-    { key: "outlook", label: "Outlook and Microsoft 365", desc: "Outlook.com, Hotmail, Live, MSN and Microsoft 365, signed in with Microsoft. Their calendars come along." },
-    { key: "other", label: "Other providers", desc: "iCloud, Yahoo, Fastmail, Zoho and any other IMAP/SMTP server." },
   ];
+  type SectionId = string;
+  const isSection = (s: unknown): s is SectionId => SECTIONS.some((x) => x.id === s);
+  /** Older links open where that setting lives now (the Admin section is gone). */
+  const sectionFor = (s: unknown): SectionId | null => (s === "admin" ? "ai" : isSection(s) ? s : null);
+  const sectionLabel = (s: (typeof SECTIONS)[number]) => (s.key ? t(s.key) : s.label);
 
-  function setProvider(key: keyof ProviderAccess, on: boolean) {
-    const next = { ...settings!.providers, [key]: on };
-    if (!next.gmail && !next.outlook && !next.other) {
-      toast("Keep at least one provider on, or no account can be added", { kind: "error" });
-      return;
-    }
-    void update({ providers: next });
+  function setLanguage(l: Locale) {
+    setLocale(l);
+    void update({ language: l });
   }
 
-  let section = $state<SectionId>(sectionFor((() => initialSection)()) ?? "accounts");
+  let section = $state<SectionId>(sectionFor((() => initialSection)()) ?? "account");
   let settings = $state<AppSettings | null>(null);
   let accounts = $state<Account[]>([]);
   let info = $state<{ version: string; dataDir: string } | null>(null);
@@ -73,11 +69,16 @@
     // Changes made elsewhere (e.g. the layout toggle in the main window); our own saves answer with the newest state.
     listen<AppSettings>("settings-changed", (e) => {
       if (saving === 0) settings = e.payload;
+      applyLanguageSetting(e.payload.language);
     }).then(keep);
-    api.getSettings().then((s) => {
-      settings = s;
-      applyTheme(s.theme);
-    }).catch((e) => toastError(e));
+    // Changed on another device.
+    onEngineEvent((e) => {
+      if (e.type !== "settingsChanged") return;
+      void reloadSettings();
+      void loadUiPrefs().catch(() => {});
+    }).then(keep);
+    void reloadSettings();
+    void loadUiPrefs().catch(() => {});
     api.appInfo().then((i) => (info = i)).catch(() => {});
     loadAccounts();
     loadSignatures();
@@ -88,6 +89,17 @@
       un.forEach((u) => u());
     };
   });
+
+  async function reloadSettings() {
+    try {
+      const s = await api.getSettings();
+      if (saving === 0) settings = s;
+      applyTheme(s.theme);
+      applyLanguageSetting(s.language);
+    } catch (e) {
+      toastError(e);
+    }
+  }
 
   $effect(() => {
     section;
@@ -478,15 +490,18 @@
     {#each SECTIONS as s}
       <button class="rail-item" class:active={section === s.id} aria-current={section === s.id ? "page" : undefined} onclick={() => (section = s.id)}>
         <s.icon size={16} />
-        {s.label}
+        {sectionLabel(s)}
       </button>
     {/each}
   </nav>
 
   <main class="content" bind:this={contentEl}>
     <div class="inner">
-      {#if section === "accounts"}
-        <h1>Accounts</h1>
+      {#if section === "account"}
+        <AccountSettings />
+
+      {:else if section === "accounts"}
+        <h1>Mailboxes</h1>
         <div class="list">
           {#each accounts as a (a.id)}
             <div class="acct" class:open={openId === a.id}>
@@ -535,7 +550,7 @@
                     </div>
                   {:else}
                     <div class="acct-actions">
-                      <button class="btn" onclick={() => (reauthId = a.id)}>{a.auth === "microsoft" ? "Sign in again" : "Re-authenticate"}</button>
+                      <button class="btn" onclick={() => (reauthId = a.id)}>{a.auth === "microsoft" || a.auth === "google" ? "Sign in again" : "Re-authenticate"}</button>
                       <button class="btn danger" onclick={() => removeAccount(a)}>Remove account</button>
                     </div>
                   {/if}
@@ -558,6 +573,10 @@
       {:else if section === "general" && settings}
         <h1>General</h1>
         <div class="group-title">Appearance</div>
+        {@render row(t("lang.label"), t("settings.languageDesc"), langCtl)}
+        {#snippet langCtl()}
+          <Select width={160} label={t("lang.label")} value={i18n.locale} options={LOCALES} onchange={setLanguage} />
+        {/snippet}
         {@render row("Theme", null, themeCtl)}
         {#snippet themeCtl()}
           <div class="seg" role="radiogroup" aria-label="Theme">
@@ -679,32 +698,7 @@
       {:else if section === "calendar" && settings}
         <CalendarSettings {settings} {update} />
 
-      {:else if section === "admin" && settings}
-        <h1>Admin</h1>
-        <p class="intro">Technical setup, done once. Everyday use doesn't need anything here.</p>
-
-        <div class="group-title">Email providers</div>
-        <p class="note">People can only add accounts from the providers turned on here.</p>
-        {#each PROVIDERS as p (p.key)}
-          {@render row(p.label, p.desc, provCtl)}
-          {#snippet provCtl()}
-            <Toggle label={p.label} checked={settings!.providers[p.key]} onchange={(v) => setProvider(p.key, v)} />
-          {/snippet}
-        {/each}
-        {#if settings.providers.outlook}
-          {@render row("Microsoft app (client) ID", "Outlook and Microsoft 365 sign in through a Microsoft Entra app registration. Leave empty to use the one this build includes.", msCtl)}
-          {#snippet msCtl()}
-            <input
-              class="input narrow"
-              aria-label="Microsoft app (client) ID"
-              placeholder="00000000-0000-0000-0000-000000000000"
-              spellcheck="false"
-              value={settings!.microsoftClientId}
-              onchange={(e) => update({ microsoftClientId: e.currentTarget.value.trim() })}
-            />
-          {/snippet}
-        {/if}
-
+      {:else if section === "ai"}
         <AiSettings />
 
       {:else if section === "connections"}
@@ -819,7 +813,7 @@
     flex: none;
     padding: 18px 10px;
     background: var(--surface-nav);
-    border-right: 0.5px solid var(--separator);
+    border-inline-end: 0.5px solid var(--separator);
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -841,7 +835,7 @@
     border-radius: var(--radius-lg);
     background: none;
     font-size: 13px;
-    text-align: left;
+    text-align: start;
     color: var(--content-subtle);
   }
   .rail-item:hover {
@@ -976,7 +970,7 @@
     padding: 11px 14px;
     border: none;
     background: none;
-    text-align: left;
+    text-align: start;
   }
   .acct-head:hover,
   .item:hover {
@@ -1024,6 +1018,10 @@
   }
   .chev.open {
     transform: rotate(90deg);
+  }
+  /* Closed chevrons point forward: left in right-to-left text. */
+  :global([dir="rtl"]) .chev:not(.open) {
+    transform: scaleX(-1);
   }
   .acct-body {
     padding: 2px 14px 14px;
@@ -1214,6 +1212,6 @@
     font-size: 12px;
     color: var(--content-subtle);
     word-break: break-all;
-    text-align: right;
+    text-align: end;
   }
 </style>

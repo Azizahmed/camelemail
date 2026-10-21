@@ -129,7 +129,7 @@ pub fn tls_config(allow_invalid_certs: bool) -> Result<Arc<rustls::ClientConfig>
     Ok(Arc::new(config))
 }
 
-async fn tls_wrap(tcp: TcpStream, host: &str, allow_invalid: bool) -> Result<MaybeTls> {
+pub(crate) async fn tls_wrap(tcp: TcpStream, host: &str, allow_invalid: bool) -> Result<MaybeTls> {
     let connector = tokio_rustls::TlsConnector::from(tls_config(allow_invalid)?);
     let name = rustls::pki_types::ServerName::try_from(host.to_string()).context("invalid server name")?;
     let tls = tokio::time::timeout(CONNECT_TIMEOUT, connector.connect(name, tcp))

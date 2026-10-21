@@ -1,9 +1,11 @@
 <script lang="ts">
   import Select from "./Select.svelte";
-  import { ChevronLeft, ChevronRight, KeyRound, ExternalLink, Mail, ShieldCheck } from "@lucide/svelte";
-  import { api, errorText } from "../lib/api";
+  import { ChevronLeft, ChevronRight, KeyRound, ExternalLink, Mail, ShieldCheck, Server } from "@lucide/svelte";
+  import { api } from "../lib/api";
+  import { autofocus } from "../lib/actions";
+  import { errMessage, t } from "../lib/i18n.svelte";
   import { toast } from "../lib/ui.svelte";
-  import type { Account, NewAccount, ProviderAccess, ProviderPreset, Security, ServerConfig } from "../lib/types";
+  import type { Account, NewAccount, OAuthAccountAdded, ProviderKind, ProviderOption, ProviderPreset, Security, ServerConfig, ServerPreset } from "../lib/types";
 
   let {
     mode,
@@ -21,11 +23,11 @@
 
   const IMAP_PORTS: Record<Security, number> = { tls: 993, starttls: 143, none: 143 };
   const SMTP_PORTS: Record<Security, number> = { tls: 465, starttls: 587, none: 25 };
-  const SECURITY: { value: Security; label: string }[] = [
+  const SECURITY = $derived<{ value: Security; label: string }[]>([
     { value: "tls", label: "SSL/TLS" },
     { value: "starttls", label: "STARTTLS" },
-    { value: "none", label: "None" },
-  ];
+    { value: "none", label: t("setup.securityNone") },
+  ]);
 
   const initial = (() => account)();
   let displayName = $state(initial?.displayName ?? "");
@@ -41,109 +43,119 @@
   let error = $state("");
   // svelte-ignore state_referenced_locally
   let serversTouched = $state(mode === "edit");
-  let presets = $state<ProviderPreset[]>([]);
+  /** Built-in knowledge of well-known providers (password help, Gmail / Microsoft domains). */
+  let known = $state<ProviderPreset[]>([]);
   let guessSeq = 0;
 
+  // What the organisation allows (cloud_providers); only asked for when adding.
+  let options = $state<ProviderOption[] | null>(null);
+  let optionsError = $state("");
+
+  function loadOptions() {
+    optionsError = "";
+    api.cloudProviders().then((o) => (options = o)).catch((e) => (optionsError = errMessage(e)));
+  }
+
   $effect(() => {
-    api.providerPresets().then((p) => (presets = p)).catch(() => {});
-    api.getSettings().then((s) => (allowed = s.providers)).catch(() => {});
+    api.providerPresets().then((p) => (known = p)).catch(() => {});
+    if (mode === "add") loadOptions();
   });
 
-  // Adding: first pick one of the providers the admin allows (Settings → Admin).
-  type Choice = keyof ProviderAccess;
-  let allowed = $state<ProviderAccess>({ gmail: true, outlook: true, other: true });
-  let picked = $state<Choice | null>(null);
-  const choices = $derived((["gmail", "outlook", "other"] as Choice[]).filter((c) => allowed[c]));
-  /** The provider being set up; with a single one allowed there is nothing to choose. */
-  const choice = $derived(mode === "add" ? (picked ?? (choices.length === 1 ? choices[0] : null)) : null);
+  const enabled = $derived((options ?? []).filter((o) => o.enabled));
+  const allows = (kind: ProviderKind) => enabled.some((o) => o.kind === kind);
+  const imapOption = $derived(enabled.find((o) => o.kind === "imap"));
+  /** The organisation's mail servers to pick from under "Other email". */
+  const serverPresets = $derived(imapOption?.presets ?? []);
+  const manualAllowed = $derived(!!imapOption?.manualServers);
 
-  function choose(c: Choice) {
-    picked = c;
+  let picked = $state<ProviderKind | null>(null);
+  /** The provider being set up; with a single one allowed there is nothing to choose. */
+  const choice = $derived(mode === "add" ? (picked ?? (enabled.length === 1 ? enabled[0].kind : null)) : null);
+  /** Under "Other email": the server preset in use, or "manual" for typed-in servers. */
+  let server = $state<ServerPreset | "manual" | null>(null);
+  const imapServer = $derived(choice === "imap" ? (server ?? (serverPresets.length === 0 && manualAllowed ? "manual" : null)) : null);
+
+  function choose(k: ProviderKind) {
+    picked = k;
+    server = null;
     error = "";
-    if (c === "gmail") {
-      const g = presets.find((p) => p.id === "gmail");
-      if (g) {
-        imap = { ...g.imap };
-        smtp = { ...g.smtp };
-        serversTouched = true;
-      }
-    } else if (c === "other") {
+    serversTouched = false;
+  }
+
+  function pickServer(p: ServerPreset | "manual") {
+    server = p;
+    error = "";
+    if (p === "manual") {
       serversTouched = false;
+      return;
     }
+    imap = { host: p.imapHost, port: p.imapPort, security: p.imapSecurity };
+    smtp = { host: p.smtpHost, port: p.smtpPort, security: p.smtpSecurity };
+    serversTouched = true;
   }
 
   const domain = $derived(email.trim().split("@")[1]?.toLowerCase() ?? "");
-  const preset = $derived(domain ? presets.find((p) => p.domains.some((d) => d.toLowerCase() === domain)) : undefined);
+  const preset = $derived(domain ? known.find((p) => p.domains.some((d) => d.toLowerCase() === domain)) : undefined);
   const validEmail = $derived(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()));
 
-  // Microsoft (Outlook.com, Hotmail, Live, MSN, Microsoft 365) signs in in the browser.
-  // Edit mode: Microsoft accounts (and Hotmail/Outlook ones added with a password, which switch over).
+  // Accounts that sign in in the browser. Edit mode: Microsoft accounts (and
+  // Hotmail/Outlook ones added with a password, which switch over), Google ones.
   const microsoftAccount = $derived(
     mode === "edit" &&
       !!account &&
       (account.auth === "microsoft" || preset?.oauth === "microsoft" || account.imap.host.toLowerCase() === "outlook.office365.com"),
   );
-  /** Password help: Gmail's when setting up Gmail (Workspace domains don't match its preset). */
-  const helpPreset = $derived(choice === "gmail" ? presets.find((p) => p.id === "gmail") : preset);
-  const microsoftEmail = $derived(mode === "add" && choice !== "other" && preset?.oauth === "microsoft");
-  /** An address that belongs under another choice (a Gmail address typed under "Other"). */
-  const otherFamily = $derived(choice === "other" && preset ? (preset.id === "gmail" ? "gmail" : preset.oauth === "microsoft" ? "outlook" : null) : null);
-  let msState = $state<"idle" | "setup" | "waiting">("idle");
-  let clientId = $state("");
+  const googleAccount = $derived(mode === "edit" && !!account && account.auth === "google");
+  const oauthKind = $derived<"google" | "microsoft" | null>(
+    mode === "edit" ? (googleAccount ? "google" : microsoftAccount ? "microsoft" : null) : choice === "google" || choice === "microsoft" ? choice : null,
+  );
+  /** An address that belongs under another choice (a Gmail address typed under "Other email"). */
+  const otherFamily = $derived(choice === "imap" && preset ? (preset.id === "gmail" ? "google" : preset.oauth === "microsoft" ? "microsoft" : null) : null);
+  /** The password form (adding under "Other email" once a server is chosen, or re-entering a password). */
+  const passwordForm = $derived(mode === "edit" ? !oauthKind : choice === "imap" && imapServer !== null);
+  let waiting = $state(false);
 
-  async function signInWithMicrosoft() {
-    if (busy) return;
+  async function oauthSignIn() {
+    if (busy || !oauthKind) return;
     error = "";
-    try {
-      if (!(await api.microsoftSignInReady())) {
-        msState = "setup";
+    if (oauthKind === "microsoft") {
+      try {
+        if (!(await api.microsoftSignInReady())) {
+          error = t("setup.msNotReady");
+          return;
+        }
+      } catch (e) {
+        error = errMessage(e);
         return;
       }
-    } catch (e) {
-      error = errorText(e);
-      return;
     }
     busy = true;
-    msState = "waiting";
+    waiting = true;
     try {
       if (mode === "edit" && account) {
         await api.reauthorizeAccount(account.id);
-        toast("Signed in to " + account.email);
+        toast(t("setup.signedInTo", { email: account.email }));
         ondone(account);
       } else {
-        const added = await api.addMicrosoftAccount({ email: validEmail ? email.trim() : null, displayName: displayName.trim() || null });
-        toast("Added " + added.account.email);
+        const name = displayName.trim() || null;
+        const r: OAuthAccountAdded | Account =
+          oauthKind === "google" ? await api.addGoogleAccount(name) : await api.addMicrosoftAccount({ email: null, displayName: name });
+        const added = "account" in r ? r : { account: r, warning: null };
+        toast(t("setup.added", { email: added.account.email }));
         if (added.warning) toast(added.warning, { kind: "error", duration: 12000 });
         ondone(added.account);
       }
     } catch (e) {
-      const msg = errorText(e);
-      if (!/cancelled/i.test(msg)) error = msg;
+      const msg = errMessage(e);
+      if (!/cancel/i.test(msg)) error = msg;
     } finally {
       busy = false;
-      msState = "idle";
-    }
-  }
-
-  async function saveClientId() {
-    const id = clientId.trim();
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
-      error = "The Application (client) ID looks like 00000000-0000-0000-0000-000000000000.";
-      return;
-    }
-    error = "";
-    try {
-      const s = await api.getSettings();
-      await api.setSettings({ ...s, microsoftClientId: id });
-      msState = "idle";
-      await signInWithMicrosoft();
-    } catch (e) {
-      error = errorText(e);
+      waiting = false;
     }
   }
 
   async function guess() {
-    if (mode === "edit" || serversTouched || !validEmail) return;
+    if (mode === "edit" || serversTouched || imapServer !== "manual" || !validEmail) return;
     const seq = ++guessSeq;
     try {
       const g = await api.guessServers(email.trim());
@@ -171,20 +183,25 @@
   async function submit(e: Event) {
     e.preventDefault();
     if (busy) return;
-    if (microsoftEmail || microsoftAccount || choice === "outlook") return signInWithMicrosoft();
+    if (oauthKind) return oauthSignIn();
+    if (!passwordForm) return;
     if (otherFamily) {
-      error = allowed[otherFamily]
-        ? `For this address choose ${otherFamily === "gmail" ? "Gmail" : "Outlook"} instead.`
-        : `${otherFamily === "gmail" ? "Gmail" : "Outlook and Microsoft 365"} accounts aren't allowed in Remail. They can be turned on in Settings → Admin.`;
+      error = allows(otherFamily)
+        ? t(otherFamily === "google" ? "setup.useGoogle" : "setup.useMicrosoft")
+        : t(otherFamily === "google" ? "setup.googleNotAllowed" : "setup.microsoftNotAllowed");
+      return;
+    }
+    if (!validEmail || !password) {
+      error = !validEmail ? t("setup.invalidEmail") : t("setup.enterPassword");
+      return;
+    }
+    if (mode === "add" && imapServer && imapServer !== "manual" && imapServer.domain && domain !== imapServer.domain.toLowerCase()) {
+      error = t("setup.presetDomain", { domain: "@" + imapServer.domain });
       return;
     }
     if (!imap.host.trim() && !serversTouched) await guess();
-    if (!validEmail || !password) {
-      error = !validEmail ? "Enter a valid email address." : "Enter your password.";
-      return;
-    }
     if (!imap.host.trim() || !smtp.host.trim()) {
-      error = "Enter the IMAP and SMTP server hosts.";
+      error = t("setup.enterHosts");
       showServers = true;
       return;
     }
@@ -202,195 +219,215 @@
     try {
       if (mode === "edit" && account) {
         await api.updateAccount(account.id, payload);
-        toast("Account re-authenticated");
+        toast(t("setup.reauthed"));
         ondone(account);
       } else {
         const created = await api.addAccount(payload);
-        toast("Added " + payload.email);
+        toast(t("setup.added", { email: payload.email }));
         ondone(created);
       }
     } catch (err) {
-      error = errorText(err);
-      showServers = true;
+      error = errMessage(err);
+      if (imapServer === "manual" || mode === "edit") showServers = true;
     } finally {
       busy = false;
     }
   }
+
+  /** Server fields: typed-in servers, or re-entering a password-account's details. */
+  const serverFields = $derived(mode === "edit" ? !oauthKind : imapServer === "manual");
 </script>
+
+{#snippet googleLogo(size: number)}
+  <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true"><path fill="#4285F4" d="M6 40h7V22L4 15v22a3 3 0 0 0 2 3z"/><path fill="#34A853" d="M35 40h7a3 3 0 0 0 2-3V15l-9 7z"/><path fill="#FBBC04" d="M35 10v12l9-7v-3c0-3-3.4-4.6-5.8-2.8z"/><path fill="#EA4335" d="M13 22V10l11 8.3L35 10v12l-11 8.3z"/><path fill="#C5221F" d="M4 12v3l9 7V10l-3.2-2.8C7.4 5.4 4 7 4 12z"/></svg>
+{/snippet}
+{#snippet msLogo(size: number)}
+  <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true"><rect width="7.5" height="7.5" fill="#f25022" /><rect x="8.5" width="7.5" height="7.5" fill="#7fba00" /><rect y="8.5" width="7.5" height="7.5" fill="#00a4ef" /><rect x="8.5" y="8.5" width="7.5" height="7.5" fill="#ffb900" /></svg>
+{/snippet}
 
 <form class="setup" class:compact onsubmit={submit} autocomplete="off">
   {#if !compact}
-    <h2 class="title">{mode === "add" ? "Add an account" : "Re-authenticate"}</h2>
+    <h2 class="title">{mode === "add" ? t("setup.titleAdd") : t("setup.titleEdit")}</h2>
   {/if}
 
   {#if mode === "add" && !choice}
-    {#if choices.length === 0}
-      <div class="error" role="alert">No email provider is allowed. Turn one on in Settings → Admin.</div>
+    {#if optionsError}
+      <div class="error" role="alert">{optionsError} <button type="button" class="link" onclick={loadOptions}>{t("common.retry")}</button></div>
+    {:else if options === null}
+      <div class="loading"><span class="spinner"></span></div>
+    {:else if enabled.length === 0}
+      <div class="error" role="alert">{t("setup.noProviders")}</div>
     {:else}
       <div class="choices">
-        {#if allowed.gmail}
-          <button type="button" class="choice" onclick={() => choose("gmail")}>
-            <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#4285F4" d="M6 40h7V22L4 15v22a3 3 0 0 0 2 3z"/><path fill="#34A853" d="M35 40h7a3 3 0 0 0 2-3V15l-9 7z"/><path fill="#FBBC04" d="M35 10v12l9-7v-3c0-3-3.4-4.6-5.8-2.8z"/><path fill="#EA4335" d="M13 22V10l11 8.3L35 10v12l-11 8.3z"/><path fill="#C5221F" d="M4 12v3l9 7V10l-3.2-2.8C7.4 5.4 4 7 4 12z"/></svg>
-            <span class="choice-name">Gmail</span>
+        {#if allows("google")}
+          <button type="button" class="choice" onclick={() => choose("google")}>
+            {@render googleLogo(18)}
+            <span class="choice-name">{t("setup.google")}</span>
           </button>
         {/if}
-        {#if allowed.outlook}
-          <button type="button" class="choice" onclick={() => choose("outlook")}>
-            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect width="7.5" height="7.5" fill="#f25022" /><rect x="8.5" width="7.5" height="7.5" fill="#7fba00" /><rect y="8.5" width="7.5" height="7.5" fill="#00a4ef" /><rect x="8.5" y="8.5" width="7.5" height="7.5" fill="#ffb900" /></svg>
-            <span class="choice-name">Outlook and Microsoft 365</span>
+        {#if allows("microsoft")}
+          <button type="button" class="choice" onclick={() => choose("microsoft")}>
+            {@render msLogo(16)}
+            <span class="choice-name">{t("setup.microsoft")}</span>
           </button>
         {/if}
-        {#if allowed.other}
-          <button type="button" class="choice" onclick={() => choose("other")}>
+        {#if allows("imap")}
+          <button type="button" class="choice" onclick={() => choose("imap")}>
             <Mail size={17} />
-            <span class="choice-name">Other email</span>
+            <span class="choice-name">{t("setup.other")}</span>
           </button>
         {/if}
       </div>
     {/if}
     {#if oncancel}
-      <div class="actions"><button type="button" class="btn" onclick={oncancel}>Cancel</button></div>
+      <div class="actions"><button type="button" class="btn" onclick={oncancel}>{t("common.cancel")}</button></div>
     {/if}
   {:else}
 
-  {#if mode === "add" && choices.length > 1}
-    <button type="button" class="back" onclick={() => { picked = null; error = ""; }}><ChevronLeft size={14} /> All providers</button>
+  {#if mode === "add" && enabled.length > 1}
+    <button type="button" class="back" onclick={() => { picked = null; server = null; error = ""; }}><ChevronLeft size={14} class="rtl-flip" /> {t("setup.allProviders")}</button>
+  {:else if mode === "add" && choice === "imap" && server !== null && serverPresets.length > 0}
+    <button type="button" class="back" onclick={() => { server = null; error = ""; }}><ChevronLeft size={14} class="rtl-flip" /> {t("setup.pickPreset")}</button>
   {/if}
 
-  {#if choice === "outlook" || microsoftAccount}
+  {#if oauthKind}
     <div class="ms">
-      <button type="button" class="ms-btn" disabled={busy} onclick={signInWithMicrosoft}>
-        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect width="7.5" height="7.5" fill="#f25022" /><rect x="8.5" width="7.5" height="7.5" fill="#7fba00" /><rect y="8.5" width="7.5" height="7.5" fill="#00a4ef" /><rect x="8.5" y="8.5" width="7.5" height="7.5" fill="#ffb900" /></svg>
-        {microsoftAccount ? "Sign in again with Microsoft" : "Sign in with Microsoft"}
+      <button type="button" class="ms-btn" disabled={busy} onclick={oauthSignIn} use:autofocus={mode === "add"}>
+        {#if oauthKind === "google"}{@render googleLogo(17)}{:else}{@render msLogo(16)}{/if}
+        {#if oauthKind === "google"}
+          {mode === "edit" ? t("setup.googleAgain") : t("setup.googleSignIn")}
+        {:else}
+          {mode === "edit" ? t("setup.msAgain") : t("setup.msSignIn")}
+        {/if}
       </button>
       <div class="ms-note">
-        {microsoftAccount ? `${account?.email} signs in with Microsoft.` : "Outlook.com, Hotmail, Live, MSN and Microsoft 365 (Office 365): mail and calendars"}
+        {#if mode === "edit" && account}
+          {t("setup.oauthAccount", { email: account.email, provider: oauthKind === "google" ? "Google" : "Microsoft" })}
+        {:else}
+          {oauthKind === "google" ? t("setup.googleNote") : t("setup.msNote")}
+        {/if}
       </div>
-      {#if msState === "waiting"}
+      {#if waiting}
         <div class="ms-wait" role="status">
-          <span class="spinner"></span> Finish signing in in your browser…
-          <button type="button" class="link" onclick={() => api.cancelSignIn()}>Cancel</button>
-        </div>
-      {:else if msState === "setup"}
-        <div class="ms-setup">
-          <b>One-time setup: Remail's Microsoft app ID</b>
-          <p>Microsoft only lets registered apps sign in to mail and calendars. Register Remail once with your Microsoft account (free, a few minutes):</p>
-          <ol>
-            <li>
-              Open
-              <button type="button" class="link" onclick={() => api.openUrl("https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade")}>
-                App registrations <ExternalLink size={11} />
-              </button>
-              in the Microsoft Entra admin center and choose <b>New registration</b>.
-            </li>
-            <li>Name it <b>Remail</b>. Under “Supported account types” choose <b>Accounts in any organizational directory and personal Microsoft accounts</b>.</li>
-            <li>Under “Redirect URI” pick <b>Public client/native (mobile &amp; desktop)</b> and enter <code>http://localhost</code>.</li>
-            <li>Select <b>Register</b>, then copy the <b>Application (client) ID</b> here.</li>
-          </ol>
-          <div class="field">
-            <label for="as-msid">Application (client) ID</label>
-            <input id="as-msid" class="input" bind:value={clientId} placeholder="00000000-0000-0000-0000-000000000000" spellcheck="false" />
-          </div>
-          <div class="actions">
-            <button type="button" class="btn" onclick={() => (msState = "idle")}>Cancel</button>
-            <button type="button" class="btn primary" onclick={saveClientId}>Save and sign in</button>
-          </div>
+          <span class="spinner"></span> {t("setup.waiting")}
+          <button type="button" class="link" onclick={() => api.cancelSignIn()}>{t("common.cancel")}</button>
         </div>
       {/if}
     </div>
+  {:else if mode === "add" && choice === "imap" && imapServer === null}
+    {#if serverPresets.length === 0}
+      <div class="error" role="alert">{t("setup.noServers")}</div>
+    {:else}
+      <div class="au-label">{t("setup.pickPreset")}</div>
+      <div class="choices">
+        {#each serverPresets as p (p.name + p.imapHost)}
+          <button type="button" class="choice" onclick={() => pickServer(p)}>
+            <Server size={16} />
+            <span class="choice-text">
+              <span class="choice-name" dir="auto">{p.name || p.imapHost}</span>
+              {#if p.domain}<span class="choice-sub" dir="ltr">@{p.domain}</span>{/if}
+            </span>
+          </button>
+        {/each}
+        {#if manualAllowed}
+          <button type="button" class="choice" onclick={() => pickServer("manual")}>
+            <Mail size={16} />
+            <span class="choice-name">{t("setup.otherServer")}</span>
+          </button>
+        {/if}
+      </div>
+    {/if}
   {/if}
 
-  {#if !microsoftAccount && choice !== "outlook"}
+  {#if passwordForm}
+  {#if mode === "add" && imapServer && imapServer !== "manual"}
+    <div class="preset-name"><Server size={14} /> <span dir="auto">{imapServer.name || imapServer.imapHost}</span></div>
+  {/if}
   <div class="field">
-    <label for="as-name">Name</label>
-    <input id="as-name" class="input" bind:value={displayName} placeholder="Your name" autocomplete="name" />
+    <label for="as-name">{t("common.name")}</label>
+    <input id="as-name" class="input" dir="auto" bind:value={displayName} placeholder={t("common.namePlaceholder")} autocomplete="name" />
   </div>
   <div class="field">
-    <label for="as-email">Email</label>
+    <label for="as-email">{t("common.email")}</label>
     <input
       id="as-email"
       class="input"
       type="email"
+      dir="ltr"
       bind:value={email}
       onblur={guess}
-      placeholder="you@example.com"
+      placeholder={imapServer && imapServer !== "manual" && imapServer.domain ? `you@${imapServer.domain}` : t("common.emailPlaceholder")}
       readonly={mode === "edit"}
       autocomplete="email"
+      use:autofocus={mode === "add"}
     />
   </div>
-  {#if microsoftEmail}
-    <div class="help">
-      <KeyRound size={14} />
-      <div>{preset?.passwordHelp}</div>
-    </div>
-  {:else}
   <div class="field">
-    <label for="as-pass">Password</label>
-    <input id="as-pass" class="input" type="password" bind:value={password} placeholder={mode === "edit" ? "Re-enter your password" : "Password or app password"} autocomplete="current-password" />
-    {#if helpPreset}
-      {@const preset = helpPreset}
+    <label for="as-pass">{t("common.password")}</label>
+    <input id="as-pass" class="input" type="password" dir="ltr" bind:value={password} placeholder={mode === "edit" ? t("setup.passwordAgain") : t("setup.passwordPlaceholder")} autocomplete="current-password" />
+    {#if preset && !otherFamily}
+      {@const help = preset}
       <div class="help">
         <KeyRound size={14} />
         <div>
-          <span>{preset.passwordHelp}</span>
-          {#if preset.passwordHelpUrl}
-            <button type="button" class="link" onclick={() => api.openUrl(preset.passwordHelpUrl!)}>
-              Create an app password <ExternalLink size={11} />
+          <span>{help.passwordHelp}</span>
+          {#if help.passwordHelpUrl}
+            <button type="button" class="link" onclick={() => api.openUrl(help.passwordHelpUrl!)}>
+              {t("setup.appPassword")} <ExternalLink size={11} />
             </button>
           {/if}
         </div>
       </div>
     {/if}
   </div>
-  {/if}
 
-  {#if !microsoftEmail && choice !== "gmail"}
+  {#if serverFields}
   <button type="button" class="disclosure" aria-expanded={showServers} onclick={() => (showServers = !showServers)}>
-    <span class="chev" class:open={showServers}><ChevronRight size={14} /></span>
-    Server settings
+    <span class="chev" class:open={showServers}><ChevronRight size={14} class="rtl-flip" /></span>
+    {t("setup.servers")}
   </button>
 
   {#if showServers}
     <div class="servers">
-      <div class="srv-title">IMAP (incoming)</div>
+      <div class="srv-title">{t("setup.imap")}</div>
       <div class="srv-row">
         <div class="field grow">
-          <label for="as-imap-host">Host</label>
-          <input id="as-imap-host" class="input" bind:value={imap.host} oninput={touch} placeholder="imap.example.com" />
+          <label for="as-imap-host">{t("setup.host")}</label>
+          <input id="as-imap-host" class="input" dir="ltr" bind:value={imap.host} oninput={touch} placeholder="imap.example.com" />
         </div>
         <div class="field port">
-          <label for="as-imap-port">Port</label>
-          <input id="as-imap-port" class="input" type="number" min="1" max="65535" bind:value={imap.port} oninput={touch} />
+          <label for="as-imap-port">{t("setup.port")}</label>
+          <input id="as-imap-port" class="input" dir="ltr" type="number" min="1" max="65535" bind:value={imap.port} oninput={touch} />
         </div>
         <div class="field sec">
-          <label for="as-imap-sec">Security</label>
+          <label for="as-imap-sec">{t("setup.security")}</label>
           <Select id="as-imap-sec" value={imap.security} options={SECURITY} onchange={(v) => setSecurity("imap", v)} />
         </div>
       </div>
 
-      <div class="srv-title">SMTP (outgoing)</div>
+      <div class="srv-title">{t("setup.smtp")}</div>
       <div class="srv-row">
         <div class="field grow">
-          <label for="as-smtp-host">Host</label>
-          <input id="as-smtp-host" class="input" bind:value={smtp.host} oninput={touch} placeholder="smtp.example.com" />
+          <label for="as-smtp-host">{t("setup.host")}</label>
+          <input id="as-smtp-host" class="input" dir="ltr" bind:value={smtp.host} oninput={touch} placeholder="smtp.example.com" />
         </div>
         <div class="field port">
-          <label for="as-smtp-port">Port</label>
-          <input id="as-smtp-port" class="input" type="number" min="1" max="65535" bind:value={smtp.port} oninput={touch} />
+          <label for="as-smtp-port">{t("setup.port")}</label>
+          <input id="as-smtp-port" class="input" dir="ltr" type="number" min="1" max="65535" bind:value={smtp.port} oninput={touch} />
         </div>
         <div class="field sec">
-          <label for="as-smtp-sec">Security</label>
+          <label for="as-smtp-sec">{t("setup.security")}</label>
           <Select id="as-smtp-sec" value={smtp.security} options={SECURITY} onchange={(v) => setSecurity("smtp", v)} />
         </div>
       </div>
 
       <div class="field">
-        <label for="as-user">Username</label>
-        <input id="as-user" class="input" bind:value={username} placeholder={email || "Same as email"} autocomplete="username" />
+        <label for="as-user">{t("setup.username")}</label>
+        <input id="as-user" class="input" dir="ltr" bind:value={username} placeholder={email || t("setup.usernamePlaceholder")} autocomplete="username" />
       </div>
       <label class="check">
         <input type="checkbox" bind:checked={allowInvalidCerts} />
-        Allow self-signed certificates
+        {t("setup.selfSigned")}
       </label>
     </div>
   {/if}
@@ -401,32 +438,27 @@
     <div class="error selectable" role="alert">{error}</div>
   {/if}
 
+  {#if oncancel || passwordForm}
   <div class="actions">
     {#if oncancel}
-      <button type="button" class="btn" onclick={oncancel} disabled={busy}>Cancel</button>
+      <button type="button" class="btn" onclick={oncancel} disabled={busy}>{t("common.cancel")}</button>
     {/if}
-    {#if !microsoftAccount && choice !== "outlook"}
-      <button type="submit" class="btn primary" disabled={busy || !email.trim() || (!password && !microsoftEmail)}>
-        {#if busy && msState !== "waiting"}
-          <span class="spinner"></span> Checking connection…
-        {:else if microsoftEmail}
-          Sign in with Microsoft
+    {#if passwordForm}
+      <button type="submit" class="btn primary" disabled={busy || !email.trim() || !password}>
+        {#if busy}
+          <span class="spinner"></span> {t("setup.checking")}
         {:else}
-          {mode === "add" ? "Connect" : "Save"}
+          {mode === "add" ? t("setup.connect") : t("common.save")}
         {/if}
       </button>
     {/if}
   </div>
+  {/if}
 
   {/if}
 
-  <p class="privacy"><ShieldCheck size={13} /> {PRIVACY_NOTE}</p>
+  <p class="privacy"><ShieldCheck size={13} /> {t("setup.privacy")}</p>
 </form>
-
-<script lang="ts" module>
-  export const PRIVACY_NOTE =
-    "Your password is stored in the system keyring. Remail talks to your mail server directly — no third-party cloud.";
-</script>
 
 <style>
   .setup {
@@ -488,7 +520,7 @@
     border: none;
     background: none;
     padding: 0;
-    margin-left: 4px;
+    margin-inline-start: 4px;
     color: var(--accent);
     font-size: 12px;
     font-weight: 500;
@@ -604,31 +636,6 @@
     gap: 8px;
     font-size: 13px;
   }
-  .ms-setup {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px;
-    border: 0.5px solid var(--separator);
-    border-radius: var(--radius-lg);
-    background: var(--surface);
-    font-size: 12.5px;
-    line-height: 18px;
-  }
-  .ms-setup p,
-  .ms-setup ol {
-    margin: 0;
-  }
-  .ms-setup ol {
-    padding-inline-start: 18px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .ms-setup code {
-    font-size: 11.5px;
-    user-select: text;
-  }
   .choices {
     display: flex;
     flex-direction: column;
@@ -651,6 +658,30 @@
   .choice:hover {
     border-color: var(--content-muted);
     background: var(--surface-hover);
+  }
+  .choice-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .choice-sub {
+    font-size: 11.5px;
+    font-weight: 400;
+    color: var(--content-subtle);
+  }
+  .preset-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+  }
+  .preset-name :global(svg) {
+    color: var(--icon);
+  }
+  .loading {
+    display: flex;
+    justify-content: center;
+    padding: 16px;
   }
   .choice :global(svg) {
     flex: none;

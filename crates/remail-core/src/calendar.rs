@@ -24,6 +24,7 @@ use crate::engine::Engine;
 use crate::graph::{self, GraphClient, GraphError};
 use crate::model::EngineEvent;
 use crate::store::{new_id, now_ms, Store};
+use remail_proto::sections;
 
 pub const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS cal_accounts (
@@ -114,7 +115,7 @@ pub const KIND_ICS: &str = "ics";
 pub const KIND_GRAPH: &str = "graph";
 /// Setting: Microsoft mail accounts whose Outlook calendars were disconnected
 /// (so they aren't connected again by themselves).
-const OUTLOOK_OFF: &str = "cal_outlook_off";
+pub(crate) const OUTLOOK_OFF: &str = "cal_outlook_off";
 const DAY_MS: i64 = 86_400_000;
 /// `span_end` of objects that repeat forever.
 const OPEN_END: i64 = i64::MAX;
@@ -122,7 +123,7 @@ const OPEN_END: i64 = i64::MAX;
 const MAX_FEED_BYTES: usize = 40 << 20;
 
 /// Colours for calendars the server doesn't colour.
-const PALETTE: &[&str] = &["#ff7c19", "#007aff", "#34c759", "#af52de", "#ff3b30", "#ffcc00", "#00c7be", "#ff2d55"];
+pub(crate) const PALETTE: &[&str] = &["#ff7c19", "#007aff", "#34c759", "#af52de", "#ff3b30", "#ffcc00", "#00c7be", "#ff2d55"];
 const SYNC_EVERY: Duration = Duration::from_secs(5 * 60);
 
 // ----------------------------------------------------------------------------
@@ -156,6 +157,18 @@ pub struct CalAccountView {
     pub last_error: Option<String>,
     pub last_sync: Option<i64>,
     pub calendars: Vec<CalendarView>,
+}
+
+/// A calendar account as it syncs between devices.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SyncedCalAccount {
+    pub id: String,
+    pub kind: String,
+    pub mail_account_id: Option<String>,
+    pub name: String,
+    pub url: String,
+    pub username: String,
+    pub created_at: i64,
 }
 
 /// One event instance for the UI.
@@ -248,18 +261,18 @@ pub fn local_tz() -> Tz {
 // ----------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
-struct AccountRow {
-    id: String,
-    kind: String,
-    refresh_secs: Option<i64>,
-    mail_account_id: Option<String>,
-    name: String,
-    url: String,
-    username: String,
-    allow_invalid_certs: bool,
-    status: String,
-    last_error: Option<String>,
-    last_sync: Option<i64>,
+pub(crate) struct AccountRow {
+    pub(crate) id: String,
+    pub(crate) kind: String,
+    pub(crate) refresh_secs: Option<i64>,
+    pub(crate) mail_account_id: Option<String>,
+    pub(crate) name: String,
+    pub(crate) url: String,
+    pub(crate) username: String,
+    pub(crate) allow_invalid_certs: bool,
+    pub(crate) status: String,
+    pub(crate) last_error: Option<String>,
+    pub(crate) last_sync: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -283,7 +296,7 @@ struct ObjectRow {
 }
 
 impl Store {
-    fn cal_account_rows(&self) -> Result<Vec<AccountRow>> {
+    pub(crate) fn cal_account_rows(&self) -> Result<Vec<AccountRow>> {
         let db = self.db();
         let mut stmt = db.prepare(
             "SELECT id, mail_account_id, name, url, username, allow_invalid_certs, status, last_error, last_sync, kind, refresh_secs
@@ -309,6 +322,81 @@ impl Store {
 
     fn cal_account_row(&self, id: &str) -> Result<Option<AccountRow>> {
         Ok(self.cal_account_rows()?.into_iter().find(|a| a.id == id))
+    }
+
+    /// Every calendar: `(id, calendar account, href)`.
+    fn calendar_hrefs(&self) -> Result<Vec<(String, String, String)>> {
+        let db = self.db();
+        let mut stmt = db.prepare("SELECT id, cal_account_id, href FROM calendars")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Calendar accounts as they sync to the Remail server (not Outlook
+    /// calendars: each device connects those by itself).
+    pub(crate) fn synced_cal_accounts(&self) -> Result<Vec<SyncedCalAccount>> {
+        let db = self.db();
+        let mut stmt = db.prepare("SELECT id, kind, mail_account_id, name, url, username, created_at FROM cal_accounts WHERE kind != ? ORDER BY created_at")?;
+        let rows = stmt.query_map([KIND_GRAPH], |r| {
+            Ok(SyncedCalAccount {
+                id: r.get(0)?,
+                kind: r.get(1)?,
+                mail_account_id: r.get(2)?,
+                name: r.get(3)?,
+                url: r.get(4)?,
+                username: r.get(5)?,
+                created_at: r.get(6)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Colour and visibility of every calendar, by `override_key`.
+    pub(crate) fn calendar_looks(&self) -> Result<Vec<(String, String, bool)>> {
+        let db = self.db();
+        let mut stmt = db.prepare(
+            "SELECT a.kind, a.id, a.mail_account_id, c.href, c.color, c.enabled FROM calendars c JOIN cal_accounts a ON a.id = c.cal_account_id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            let (kind, id, mail): (String, String, Option<String>) = (r.get(0)?, r.get(1)?, r.get(2)?);
+            let href: String = r.get(3)?;
+            Ok((crate::cloud::override_key(&cal_key(&kind, &id, mail.as_deref()), &href), r.get(4)?, r.get(5)?))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The portable reference (`(calendar account key, href)`) of a calendar.
+    pub(crate) fn calendar_ref(&self, calendar_id: &str) -> Result<Option<(String, String)>> {
+        Ok(self
+            .db()
+            .query_row(
+                "SELECT a.kind, a.id, a.mail_account_id, c.href FROM calendars c JOIN cal_accounts a ON a.id = c.cal_account_id WHERE c.id = ?",
+                [calendar_id],
+                |r| {
+                    let (kind, id, mail): (String, String, Option<String>) = (r.get(0)?, r.get(1)?, r.get(2)?);
+                    Ok((cal_key(&kind, &id, mail.as_deref()), r.get::<_, String>(3)?))
+                },
+            )
+            .optional()?)
+    }
+
+    /// The local calendar a portable reference points at, if it's here.
+    pub(crate) fn calendar_by_ref(&self, key: &str, href: &str) -> Result<Option<String>> {
+        let db = self.db();
+        let mut stmt = db.prepare(
+            "SELECT c.id, a.kind, a.id, a.mail_account_id FROM calendars c JOIN cal_accounts a ON a.id = c.cal_account_id WHERE c.href = ?",
+        )?;
+        let rows = stmt.query_map([href], |r| {
+            let (kind, id, mail): (String, String, Option<String>) = (r.get(1)?, r.get(2)?, r.get(3)?);
+            Ok((r.get::<_, String>(0)?, cal_key(&kind, &id, mail.as_deref())))
+        })?;
+        for row in rows {
+            let (cal, k) = row?;
+            if k == key {
+                return Ok(Some(cal));
+            }
+        }
+        Ok(None)
     }
 
     fn calendar_views(&self) -> Result<Vec<CalendarView>> {
@@ -530,6 +618,15 @@ pub(crate) struct CalState {
     changed: AtomicBool,
 }
 
+impl CalState {
+    /// Forget cached events, weather and sync times (signed out).
+    pub(crate) fn forget_all(&self) {
+        self.parsed.lock().unwrap().clear();
+        *self.weather.lock().unwrap() = None;
+        self.attempts.lock().unwrap().clear();
+    }
+}
+
 /// What to do locally once Microsoft has taken a write.
 enum AfterWrite {
     Nothing,
@@ -596,7 +693,13 @@ impl Engine {
         Ok(())
     }
 
-    fn dav_client(&self, a: &AccountRow) -> Result<CalDavClient> {
+    async fn dav_client(&self, a: &AccountRow) -> Result<CalDavClient> {
+        // A Google account's calendars sign in with its Google token.
+        if let Some(mail) = a.mail_account_id.as_deref() {
+            if self.store().account(mail)?.is_some_and(|m| m.auth == crate::oauth::GOOGLE) {
+                return CalDavClient::with_bearer(self.calendar_token(mail).await?, a.allow_invalid_certs);
+            }
+        }
         let secret_id = a.mail_account_id.clone().unwrap_or_else(|| format!("cal:{}", a.id));
         let password = self.secrets().get(&secret_id)?.context("no saved password for this calendar account")?;
         CalDavClient::new(DavCredentials { username: a.username.clone(), password, allow_invalid_certs: a.allow_invalid_certs })
@@ -636,11 +739,14 @@ impl Engine {
                 if acc.auth == crate::oauth::MICROSOFT {
                     return self.connect_outlook_calendar(mid, true).await;
                 }
+                if acc.auth == crate::oauth::GOOGLE {
+                    return self.connect_google_calendar(&acc).await;
+                }
                 if host.ends_with("office365.com") || host.ends_with("outlook.com") {
                     bail!("Outlook calendars come with Microsoft sign-in: in Settings → Accounts, choose \"Sign in again\" for this account, and its calendars connect by themselves.");
                 }
                 if acc.is_gmail || host.contains("gmail") || host.contains("google") {
-                    bail!("Google Calendar needs Google sign-in, which Remail doesn't support yet. Add it with its iCal link instead: in Google Calendar, open the calendar's settings and copy \"Secret address in iCal format\".");
+                    bail!("Google Calendar comes with Google sign-in: in Settings → Accounts, choose \"Sign in again\" for this account, then connect its calendar.");
                 }
                 let password = match req.password.clone().filter(|p| !p.is_empty()) {
                     Some(p) => p,
@@ -691,7 +797,7 @@ impl Engine {
         }
         let id = new_id("cal");
         if mail_id.is_none() {
-            self.secrets().set(&format!("cal:{id}"), &password)?;
+            self.set_credential(&id, &password)?;
         }
         self.store().db().execute(
             "INSERT INTO cal_accounts(id, mail_account_id, name, url, username, allow_invalid_certs, created_at) VALUES(?,?,?,?,?,?,?)",
@@ -705,8 +811,62 @@ impl Engine {
             }
             return Err(e.context("the first sync failed"));
         }
-        self.emit_event(EngineEvent::CalendarChanged);
+        self.calendars_changed(mail_id.is_none().then_some(id.as_str()));
         self.cal_accounts()?.into_iter().find(|a| a.id == id).context("account vanished")
+    }
+
+    /// Calendar setup changed here: sync it to the Remail server (with the
+    /// calendar account's own credential, if it has one) and tell the UI.
+    fn calendars_changed(&self, credential_of: Option<&str>) {
+        self.mark_dirty(sections::CALENDARS);
+        if let Some(id) = credential_of {
+            self.mark_dirty(&sections::cred_section(id));
+        }
+        self.emit_event(EngineEvent::CalendarChanged);
+    }
+
+    /// Connect a Google account's calendars (CalDAV with its Google token).
+    async fn connect_google_calendar(&self, acc: &crate::model::Account) -> Result<CalAccountView> {
+        let token = self.calendar_token(&acc.id).await?;
+        let client = CalDavClient::with_bearer(token, acc.allow_invalid_certs)?;
+        let base = crate::engine::google_caldav_base();
+        let mut home = None;
+        let mut last_err = None;
+        for start in [format!("{base}/{}/", acc.email), format!("{base}/{}/user", acc.email)] {
+            match client.discover(&start).await {
+                Ok(h) => {
+                    home = Some(h);
+                    break;
+                }
+                Err(e) => last_err = Some(e),
+            }
+        }
+        let home = match (home, last_err) {
+            (Some(h), _) => h,
+            (None, Some(e)) => return Err(e.context("Couldn't find this Google account's calendars")),
+            (None, None) => bail!("Couldn't find this Google account's calendars"),
+        };
+        let id = new_id("cal");
+        self.store().db().execute(
+            "INSERT INTO cal_accounts(id, mail_account_id, name, url, username, created_at) VALUES(?,?,?,?,?,?)",
+            params![id, acc.id, acc.email, home, acc.email, now_ms()],
+        )?;
+        if let Err(e) = self.cal_sync_account(&id).await {
+            self.store().db().execute("DELETE FROM cal_accounts WHERE id = ?", [&id])?;
+            return Err(e.context("the first sync failed"));
+        }
+        self.calendars_changed(None);
+        self.cal_accounts()?.into_iter().find(|a| a.id == id).context("account vanished")
+    }
+
+    /// The colour and visibility the user chose for a calendar on another
+    /// device, for a calendar this device is about to show for the first time.
+    fn calendar_override(&self, acc: &AccountRow, href: &str) -> (Option<String>, Option<bool>) {
+        let all: HashMap<String, crate::cloud::CalOverride> = self.store().setting(crate::cloud::CAL_OVERRIDES).unwrap_or_default();
+        match all.get(&crate::cloud::override_key(&cal_key(&acc.kind, &acc.id, acc.mail_account_id.as_deref()), href)) {
+            Some(o) => (o.color.clone(), o.enabled),
+            None => (None, None),
+        }
     }
 
     /// Subscribe to an iCal link: a read-only calendar refreshed in the background.
@@ -742,7 +902,7 @@ impl Engine {
         let id = new_id("cal");
         let cal_id = new_id("calendar");
         if let Some(p) = &password {
-            self.secrets().set(&format!("cal:{id}"), p)?;
+            self.set_credential(&id, p)?;
         }
         let stored = (|| -> Result<()> {
             let now = now_ms();
@@ -768,7 +928,7 @@ impl Engine {
             return Err(e);
         }
         self.cal().attempts.lock().unwrap().insert(id.clone(), now_ms());
-        self.emit_event(EngineEvent::CalendarChanged);
+        self.calendars_changed(password.is_some().then_some(id.as_str()));
         self.cal_accounts()?.into_iter().find(|a| a.id == id).context("subscription vanished")
     }
 
@@ -890,6 +1050,125 @@ impl Engine {
         }
     }
 
+    // ------------------------------------------------------------------
+    // Calendar setup from another device (cloud::mapping)
+    // ------------------------------------------------------------------
+
+    /// A CalDAV account or iCal subscription that arrived from another
+    /// device: stored under its id (calendars are found by the next sync).
+    /// Returns whether anything changed.
+    pub(crate) fn cal_apply_account(&self, a: &SyncedCalAccount) -> Result<bool> {
+        if a.kind != KIND_CALDAV && a.kind != KIND_ICS {
+            return Ok(false);
+        }
+        if let Some(m) = &a.mail_account_id {
+            if self.store().account(m)?.is_none() {
+                return Ok(false); // its mail account hasn't arrived (yet)
+            }
+        }
+        match self.store().cal_account_row(&a.id)? {
+            Some(cur) => {
+                if (cur.name.as_str(), cur.url.as_str(), cur.username.as_str()) == (a.name.as_str(), a.url.as_str(), a.username.as_str()) {
+                    return Ok(false);
+                }
+                self.store().db().execute(
+                    "UPDATE cal_accounts SET name = ?, url = ?, username = ? WHERE id = ?",
+                    params![a.name, a.url, a.username, a.id],
+                )?;
+                if a.kind == KIND_ICS {
+                    self.store().db().execute("UPDATE calendars SET href = ?, name = ? WHERE cal_account_id = ?", params![a.url, a.name, a.id])?;
+                }
+            }
+            None => {
+                let db = self.store().db();
+                db.execute(
+                    "INSERT INTO cal_accounts(id, mail_account_id, name, url, username, kind, created_at) VALUES(?,?,?,?,?,?,?)",
+                    params![a.id, a.mail_account_id, a.name, a.url, a.username, a.kind, a.created_at],
+                )?;
+                if a.kind == KIND_ICS {
+                    // A subscription is one calendar at its link.
+                    let n: i64 = db.query_row("SELECT COUNT(*) FROM calendars", [], |r| r.get(0))?;
+                    drop(db);
+                    let row = self.store().cal_account_row(&a.id)?.context("calendar account vanished")?;
+                    let (color, enabled) = self.calendar_override(&row, &a.url);
+                    let color = color.unwrap_or_else(|| PALETTE[n as usize % PALETTE.len()].to_string());
+                    self.store().db().execute(
+                        "INSERT INTO calendars(id, cal_account_id, href, name, color, read_only, sort_order, enabled) VALUES(?,?,?,?,?,1,0,?)",
+                        params![new_id("calendar"), a.id, a.url, a.name, color, enabled.unwrap_or(true)],
+                    )?;
+                }
+            }
+        }
+        self.cal().attempts.lock().unwrap().remove(&a.id);
+        self.cal_changed();
+        Ok(true)
+    }
+
+    /// Remove a calendar account from this device only.
+    pub(crate) fn cal_remove_here(&self, id: &str) -> Result<bool> {
+        let Some(row) = self.store().cal_account_row(id)? else { return Ok(false) };
+        let calendars: Vec<String> = self.store().calendar_rows(id)?.into_iter().map(|c| c.id).collect();
+        self.store().db().execute("DELETE FROM cal_accounts WHERE id = ?", [id])?;
+        self.forget_calendars(&calendars);
+        if row.mail_account_id.is_none() {
+            let _ = self.secrets().delete(&format!("cal:{id}"));
+        }
+        self.cal_changed();
+        Ok(true)
+    }
+
+    /// Outlook calendars of these mail accounts were disconnected elsewhere.
+    pub(crate) fn cal_remove_outlook(&self, mail_account_ids: &[String]) -> Result<bool> {
+        let mut any = false;
+        for a in self.store().cal_account_rows()? {
+            if a.kind == KIND_GRAPH && a.mail_account_id.as_ref().is_some_and(|m| mail_account_ids.contains(m)) {
+                any |= self.cal_remove_here(&a.id)?;
+            }
+        }
+        Ok(any)
+    }
+
+    /// Apply calendar colours and visibility chosen on another device to the
+    /// calendars shown here. Returns whether anything changed.
+    pub(crate) fn cal_apply_overrides(&self, overrides: &HashMap<String, crate::cloud::CalOverride>) -> Result<bool> {
+        let accounts: HashMap<String, AccountRow> = self.store().cal_account_rows()?.into_iter().map(|a| (a.id.clone(), a)).collect();
+        let mut changed = false;
+        for (id, acc_id, href) in self.store().calendar_hrefs()? {
+            let Some(acc) = accounts.get(&acc_id) else { continue };
+            let key = crate::cloud::override_key(&cal_key(&acc.kind, &acc.id, acc.mail_account_id.as_deref()), &href);
+            let Some(o) = overrides.get(&key) else { continue };
+            let db = self.store().db();
+            if let Some(c) = &o.color {
+                changed |= db.execute("UPDATE calendars SET color = ?1 WHERE id = ?2 AND color IS NOT ?1", params![c, id])? > 0;
+            }
+            if let Some(e) = o.enabled {
+                changed |= db.execute("UPDATE calendars SET enabled = ?1 WHERE id = ?2 AND enabled IS NOT ?1", params![e, id])? > 0;
+            }
+        }
+        if changed {
+            self.cal_changed();
+        }
+        Ok(changed)
+    }
+
+    /// Calendar setup changed from another device: tell the UI, and sync new accounts now.
+    pub(crate) fn cal_applied(&self, new_accounts: Vec<String>) {
+        if self.cal().changed.swap(false, Ordering::AcqRel) {
+            self.emit_event(EngineEvent::CalendarChanged);
+        }
+        if new_accounts.is_empty() || !self.gate_open() {
+            return;
+        }
+        let engine = self.clone();
+        tokio::spawn(async move {
+            for id in new_accounts {
+                if let Err(e) = engine.cal_sync(Some(&id)).await {
+                    tracing::debug!("calendar sync: {e:#}");
+                }
+            }
+        });
+    }
+
     pub fn cal_remove_account(&self, id: &str) -> Result<()> {
         let row = self.store().cal_account_row(id)?;
         if let Some(mail) = row.as_ref().filter(|r| r.kind == KIND_GRAPH).and_then(|r| r.mail_account_id.clone()) {
@@ -908,7 +1187,7 @@ impl Engine {
                 let _ = self.secrets().delete(&format!("cal:{id}"));
             }
         }
-        self.emit_event(EngineEvent::CalendarChanged);
+        self.calendars_changed(Some(id));
         Ok(())
     }
 
@@ -919,7 +1198,7 @@ impl Engine {
         if let Some(c) = color.filter(|c| c.starts_with('#') && (c.len() == 7 || c.len() == 4)) {
             self.store().db().execute("UPDATE calendars SET color = ? WHERE id = ?", params![c.to_lowercase(), id])?;
         }
-        self.emit_event(EngineEvent::CalendarChanged);
+        self.calendars_changed(None);
         Ok(())
     }
 
@@ -976,7 +1255,7 @@ impl Engine {
     }
 
     async fn cal_sync_inner(&self, acc: &AccountRow) -> Result<()> {
-        let client = self.dav_client(acc)?;
+        let client = self.dav_client(acc).await?;
         let remote: Vec<_> = client.calendars(&acc.url).await?.into_iter().filter(|c| c.supports_events).collect();
         let local = self.store().calendar_rows(&acc.id)?;
         // Calendars removed on the server.
@@ -1027,10 +1306,11 @@ impl Engine {
                 }
                 None => {
                     let id = new_id("calendar");
-                    let color = r.color.as_deref().map(str::to_lowercase).unwrap_or_else(|| PALETTE[i % PALETTE.len()].to_string());
+                    let (chosen, enabled) = self.calendar_override(acc, &r.href);
+                    let color = chosen.or_else(|| r.color.as_deref().map(str::to_lowercase)).unwrap_or_else(|| PALETTE[i % PALETTE.len()].to_string());
                     self.store().db().execute(
-                        "INSERT INTO calendars(id, cal_account_id, href, name, color, read_only, sort_order) VALUES(?,?,?,?,?,?,?)",
-                        params![id, acc.id, r.href, r.name, color, r.read_only, i as i64],
+                        "INSERT INTO calendars(id, cal_account_id, href, name, color, read_only, sort_order, enabled) VALUES(?,?,?,?,?,?,?,?)",
+                        params![id, acc.id, r.href, r.name, color, r.read_only, i as i64, enabled.unwrap_or(true)],
                     )?;
                     self.cal_changed();
                     id
@@ -1223,7 +1503,7 @@ impl Engine {
             let _turn = lock.lock().await;
             self.graph_create(&cal, &acc, input).await?
         } else {
-            let client = self.dav_client(&acc)?;
+            let client = self.dav_client(&acc).await?;
             let ics = event::new_object(input).to_ics();
             let href = CalDavClient::new_href(&cal.href);
             // A sync listing taken before this PUT must not delete the new event locally.
@@ -1303,7 +1583,7 @@ impl Engine {
         }
         event::update_object(&mut comp, &input, scope)?;
         let new_ics = comp.to_ics();
-        let client = self.dav_client(acc)?;
+        let client = self.dav_client(acc).await?;
         let etag = self.known_etag(&client, cal, href, &stored_etag, &ics).await?;
         if let Some(target) = new_calendar.filter(|t| *t != cal.id && matches!(scope, EditScope::All)) {
             // Moving calendars: only if the source is unchanged on the server, then
@@ -1312,7 +1592,7 @@ impl Engine {
                 return Err(DavError::Conflict.into());
             }
             let (tcal, tacc) = self.writable_calendar(&target)?;
-            let tclient = self.dav_client(&tacc)?;
+            let tclient = self.dav_client(&tacc).await?;
             let thref = CalDavClient::new_href(&tcal.href);
             self.put_and_store(&tclient, &tcal, &thref, &new_ics, None, true).await?;
             if let Err(e) = client.delete(href, etag.as_deref()).await {
@@ -1344,7 +1624,7 @@ impl Engine {
         let result: Result<()> = async {
             let _sync = self.cal().syncing.lock().await;
             let (stored_etag, ics) = self.store().object(&cal.id, href)?.context("event not found; it may have been deleted")?;
-            let client = self.dav_client(&acc)?;
+            let client = self.dav_client(&acc).await?;
             let etag = self.known_etag(&client, &cal, href, &stored_etag, &ics).await?;
             match scope {
                 EditScope::All => {
@@ -1439,6 +1719,7 @@ impl Engine {
             if off.contains(&mail.id) {
                 off.retain(|m| *m != mail.id);
                 self.store().set_setting(OUTLOOK_OFF, &off)?;
+                self.mark_dirty(sections::CALENDARS);
             }
         }
         let id = self.outlook_account(&mail)?.context("its calendars were disconnected")?;
@@ -1504,10 +1785,11 @@ impl Engine {
                 }
                 None => {
                     let id = new_id("calendar");
-                    let color = r.color.clone().unwrap_or_else(|| PALETTE[(shown + i) % PALETTE.len()].to_string());
+                    let (chosen, enabled) = self.calendar_override(acc, &r.id);
+                    let color = chosen.or_else(|| r.color.clone()).unwrap_or_else(|| PALETTE[(shown + i) % PALETTE.len()].to_string());
                     self.store().db().execute(
-                        "INSERT INTO calendars(id, cal_account_id, href, name, color, read_only, sort_order) VALUES(?,?,?,?,?,?,?)",
-                        params![id, acc.id, r.id, r.name, color, !r.writable, i as i64],
+                        "INSERT INTO calendars(id, cal_account_id, href, name, color, read_only, sort_order, enabled) VALUES(?,?,?,?,?,?,?,?)",
+                        params![id, acc.id, r.id, r.name, color, !r.writable, i as i64, enabled.unwrap_or(true)],
                     )?;
                     self.cal_changed();
                     CalendarRow { id, account_id: acc.id.clone(), href: r.id.clone(), ctag: None, read_only: !r.writable }
@@ -1911,6 +2193,16 @@ fn day_label(start_ms: i64, tz: Tz) -> String {
         0 => "Today".into(),
         1 => "Tomorrow".into(),
         _ => d.format("%a %-d %b").to_string(),
+    }
+}
+
+/// A calendar account's portable name, the same on every device: its id
+/// (synced), except Outlook calendars (`graph:<mail account>`), which each
+/// device connects by itself.
+pub(crate) fn cal_key(kind: &str, id: &str, mail_account_id: Option<&str>) -> String {
+    match (kind, mail_account_id) {
+        (KIND_GRAPH, Some(m)) => format!("graph:{m}"),
+        _ => id.to_string(),
     }
 }
 

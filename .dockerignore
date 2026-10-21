@@ -1,0 +1,8 @@
+# Server images only need the Rust workspace.
+target
+node_modules
+dist
+.git
+docs/screenshots
+assets
+public

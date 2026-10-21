@@ -56,6 +56,7 @@ handlers![
     guess_servers,
     add_account,
     add_microsoft_account,
+    add_google_account,
     reauthorize_account,
     cancel_sign_in,
     microsoft_sign_in_ready,
@@ -142,6 +143,29 @@ handlers![
     mcp_test,
     mcp_discover,
     mcp_parse,
+    cloud_status,
+    cloud_set_server,
+    cloud_signup,
+    cloud_verify_email,
+    cloud_login,
+    cloud_login_2fa,
+    cloud_logout,
+    cloud_request_reset,
+    cloud_reset_password,
+    cloud_me,
+    cloud_update_me,
+    cloud_change_password,
+    cloud_totp_setup,
+    cloud_totp_enable,
+    cloud_totp_disable,
+    cloud_devices,
+    cloud_revoke_device,
+    cloud_providers,
+    cloud_migration,
+    cloud_migrate,
+    cloud_sync_now,
+    ui_prefs,
+    set_ui_prefs,
 ];
 
 #[derive(Serialize)]
@@ -209,6 +233,13 @@ async fn add_microsoft_account(app: AppHandle, state: State<'_, AppState>, req: 
     state.engine.add_microsoft_account(browser(app), req).await.map_err(err)
 }
 
+/// Sign in at Google in the browser and add the Gmail / Workspace account.
+#[tauri::command]
+async fn add_google_account(app: AppHandle, state: State<'_, AppState>, display_name: Option<String>) -> R<OAuthAccountAdded> {
+    let req = OAuthAccountRequest { display_name, ..Default::default() };
+    state.engine.add_google_account(browser(app), req).await.map_err(err)
+}
+
 #[tauri::command]
 async fn reauthorize_account(app: AppHandle, state: State<'_, AppState>, id: String) -> R<()> {
     state.engine.reauthorize_account(&id, browser(app)).await.map_err(err)
@@ -219,7 +250,7 @@ fn cancel_sign_in(state: State<'_, AppState>) {
     state.engine.cancel_sign_in();
 }
 
-/// Whether "Sign in with Microsoft" has an app (client) ID to use.
+/// Whether "Sign in with Microsoft" has an app (client) ID to use (from the organisation).
 #[tauri::command]
 async fn microsoft_sign_in_ready(state: State<'_, AppState>) -> R<bool> {
     blocking(&state, |e| Ok(e.microsoft_client_id().is_some())).await
@@ -874,4 +905,147 @@ async fn weather_forecast(state: State<'_, AppState>) -> R<Vec<DayWeather>> {
 #[tauri::command]
 async fn weather_places(state: State<'_, AppState>, query: String) -> R<Vec<Place>> {
     state.engine.weather_places(&query).await.map_err(err)
+}
+
+// ---------------------------------------------------------------------------
+// Remail account (the server). Tokens never leave Rust; errors are
+// `cloud:<code>:<message>`.
+// ---------------------------------------------------------------------------
+
+use remail_core::cloud::{CloudError, CloudStatus, LoginResult, MigrationInfo, ProviderView};
+use remail_core::engine::{UiPrefs, UiPrefsPatch};
+use remail_core::proto::api::{BackupCodes, Device, Me, Meta, SignupRequest, SignupResponse, TotpSetup};
+
+fn cerr(e: CloudError) -> String {
+    e.to_string()
+}
+
+#[tauri::command]
+fn cloud_status(state: State<'_, AppState>) -> CloudStatus {
+    state.cloud.status()
+}
+
+#[tauri::command]
+async fn cloud_set_server(state: State<'_, AppState>, address: String) -> R<Meta> {
+    state.cloud.set_server(&address).await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn cloud_signup(
+    state: State<'_, AppState>,
+    name: String,
+    email: String,
+    password: String,
+    invite: Option<String>,
+    locale: Option<String>,
+) -> R<SignupResponse> {
+    let req = SignupRequest { name, email, password, invite: invite.filter(|i| !i.trim().is_empty()), locale };
+    state.cloud.signup(req).await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn cloud_verify_email(state: State<'_, AppState>, token: String) -> R<()> {
+    state.cloud.verify_email(&token).await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn cloud_login(state: State<'_, AppState>, email: String, password: String) -> R<LoginResult> {
+    state.cloud.login(&email, &password).await.map_err(cerr)
+}
+
+#[derive(Serialize)]
+pub struct MeResult {
+    me: Me,
+}
+
+#[tauri::command]
+async fn cloud_login_2fa(state: State<'_, AppState>, challenge: String, code: String) -> R<MeResult> {
+    state.cloud.login_2fa(&challenge, &code).await.map(|me| MeResult { me }).map_err(cerr)
+}
+
+/// Sign out: this computer's synced setup and credentials are removed and mail stops.
+#[tauri::command]
+async fn cloud_logout(state: State<'_, AppState>) -> R<()> {
+    state.cloud.logout().await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn cloud_request_reset(state: State<'_, AppState>, email: String) -> R<()> {
+    state.cloud.request_reset(&email).await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn cloud_reset_password(state: State<'_, AppState>, token: String, password: String) -> R<()> {
+    state.cloud.reset_password(&token, &password).await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn cloud_me(state: State<'_, AppState>) -> R<Me> {
+    state.cloud.me().await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn cloud_update_me(state: State<'_, AppState>, name: String) -> R<Me> {
+    state.cloud.update_me(&name).await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn cloud_change_password(state: State<'_, AppState>, current: String, new: String) -> R<()> {
+    state.cloud.change_password(&current, &new).await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn cloud_totp_setup(state: State<'_, AppState>, challenge: Option<String>) -> R<TotpSetup> {
+    state.cloud.totp_setup(challenge).await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn cloud_totp_enable(state: State<'_, AppState>, code: String, challenge: Option<String>) -> R<BackupCodes> {
+    state.cloud.totp_enable(&code, challenge).await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn cloud_totp_disable(state: State<'_, AppState>, password: String, code: String) -> R<()> {
+    state.cloud.totp_disable(&password, &code).await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn cloud_devices(state: State<'_, AppState>) -> R<Vec<Device>> {
+    state.cloud.devices().await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn cloud_revoke_device(state: State<'_, AppState>, id: String) -> R<()> {
+    state.cloud.revoke_device(&id).await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn cloud_providers(state: State<'_, AppState>) -> R<Vec<ProviderView>> {
+    state.cloud.providers().await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn cloud_migration(state: State<'_, AppState>) -> R<MigrationInfo> {
+    state.cloud.migration().await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn cloud_migrate(state: State<'_, AppState>, upload: bool) -> R<()> {
+    state.cloud.migrate(upload).await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn cloud_sync_now(state: State<'_, AppState>) -> R<()> {
+    state.cloud.sync_now().await.map_err(cerr)
+}
+
+/// Shortcuts, hidden sidebar entries and the last compose account (synced).
+#[tauri::command]
+async fn ui_prefs(state: State<'_, AppState>) -> R<UiPrefs> {
+    blocking(&state, |e| Ok(e.ui_prefs())).await
+}
+
+#[tauri::command]
+async fn set_ui_prefs(state: State<'_, AppState>, prefs: UiPrefsPatch) -> R<()> {
+    blocking(&state, move |e| e.set_ui_prefs(prefs).map(|_| ())).await
 }

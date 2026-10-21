@@ -4,6 +4,7 @@
   import { api, errorText } from "../../lib/api";
   import type { AiSettings } from "../../lib/types";
   import { toast, toastError } from "../../lib/ui.svelte";
+  import { t } from "../../lib/i18n.svelte";
   import Toggle from "../Toggle.svelte";
 
   const PRESETS: { id: string; name: string; provider: AiSettings["provider"]; baseUrl: string; model: string; keyUrl?: string }[] = [
@@ -105,7 +106,7 @@
 </script>
 
 {#if s}
-  <h2>AI assistance</h2>
+  <h1>{t("settings.ai")}</h1>
   <p class="intro">
     Summaries, reply suggestions, rewriting and a chat assistant that can search and act on your mail. Bring your own key from any
     OpenAI-compatible or Anthropic-compatible provider, or run a local model.
@@ -187,11 +188,11 @@
 {/if}
 
 <style>
-  /* A part of the Admin page. */
-  h2 {
-    margin: 32px 0 14px;
-    font-size: 16px;
-    line-height: 22px;
+  /* Settings › AI assistance. */
+  h1 {
+    margin: 0 0 18px;
+    font-size: 20px;
+    line-height: 26px;
     font-weight: 600;
   }
   .intro {

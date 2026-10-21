@@ -1,5 +1,6 @@
 //! OAuth 2.0 sign-in for mail servers that no longer take passwords:
-//! Microsoft (Outlook.com, Hotmail, Live, MSN and Microsoft 365).
+//! Microsoft (Outlook.com, Hotmail, Live, MSN and Microsoft 365) and Google
+//! (Gmail and Google Workspace).
 //!
 //! Authorization code flow with PKCE for a public (desktop) client. The
 //! browser signs in at the provider and is sent back to a one-shot listener on
@@ -19,6 +20,9 @@ use tokio::net::TcpListener;
 use crate::store::now_ms;
 
 pub const MICROSOFT: &str = "microsoft";
+pub const GOOGLE: &str = "google";
+/// Gmail (IMAP/SMTP over XOAUTH2) and Google Calendar (CalDAV with the same token).
+pub const GOOGLE_SCOPE: &str = "https://mail.google.com/ https://www.googleapis.com/auth/calendar openid email";
 /// Tenant id of personal Microsoft accounts (Outlook.com, Hotmail, Live, MSN).
 pub const MICROSOFT_CONSUMER_TENANT: &str = "9188040d-6c67-4c5b-b112-36a304b66dad";
 
@@ -33,6 +37,11 @@ pub struct Provider {
     /// Asked for at sign-in too, so tokens for them come from the same
     /// sign-in later (the calendar). A token is for one service at a time.
     pub also_consent: String,
+    /// Extra parameters of the sign-in page (`prompt`, `access_type`).
+    pub authorize_params: Vec<(&'static str, &'static str)>,
+    /// Refreshes name the service's scopes (Microsoft: one resource per
+    /// token); Google tokens cover every scope granted, so it's left out.
+    pub refresh_with_scope: bool,
 }
 
 impl Provider {
@@ -51,6 +60,42 @@ impl Provider {
             scope: "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access openid email profile"
                 .into(),
             also_consent: crate::graph::SCOPE.into(),
+            authorize_params: vec![("prompt", "select_account")],
+            refresh_with_scope: true,
+        }
+    }
+
+    /// Gmail and Google Workspace.
+    pub fn google() -> Provider {
+        Provider {
+            authorize_url: "https://accounts.google.com/o/oauth2/v2/auth".into(),
+            token_url: "https://oauth2.googleapis.com/token".into(),
+            ..Self::google_at("https://oauth2.googleapis.com")
+        }
+    }
+
+    /// Google endpoints under one base (tests point it at a local server):
+    /// `<base>/o/oauth2/v2/auth` and `<base>/token`.
+    pub fn google_at(base: &str) -> Provider {
+        let base = base.trim_end_matches('/');
+        Provider {
+            id: GOOGLE,
+            authorize_url: format!("{base}/o/oauth2/v2/auth"),
+            token_url: format!("{base}/token"),
+            scope: GOOGLE_SCOPE.into(),
+            also_consent: String::new(),
+            // A refresh token only comes with offline access, and again only on consent.
+            authorize_params: vec![("access_type", "offline"), ("prompt", "consent")],
+            refresh_with_scope: false,
+        }
+    }
+
+    /// `Microsoft` / `Google`, for messages.
+    pub fn display_name(&self) -> &'static str {
+        if self.id == GOOGLE {
+            "Google"
+        } else {
+            "Microsoft"
         }
     }
 
@@ -75,12 +120,17 @@ pub struct Identity {
     pub tenant: Option<String>,
     /// The user's object id (`oid`): stable even when the address changes.
     pub object_id: Option<String>,
+    /// OpenID `sub` (Google's stable account id).
+    pub sub: Option<String>,
 }
 
 impl Identity {
-    /// `tid/oid`: the account's identity across sign-ins.
+    /// The account's identity across sign-ins: Microsoft's `tid/oid`, else `sub`.
     pub fn subject(&self) -> Option<String> {
-        Some(format!("{}/{}", self.tenant.as_deref()?, self.object_id.as_deref()?))
+        match (self.tenant.as_deref(), self.object_id.as_deref()) {
+            (Some(t), Some(o)) => Some(format!("{t}/{o}")),
+            _ => self.sub.clone(),
+        }
     }
 }
 
@@ -183,6 +233,7 @@ pub fn identity_from_id_token(id_token: &str) -> Identity {
         name: s("name"),
         tenant: s("tid"),
         object_id: s("oid"),
+        sub: s("sub"),
     }
 }
 
@@ -213,33 +264,43 @@ pub async fn begin(provider: &Provider, client_id: &str, login_hint: Option<&str
         .append_pair("scope", &provider.consent_scope())
         .append_pair("state", &state)
         .append_pair("code_challenge", &pkce_challenge(&verifier))
-        .append_pair("code_challenge_method", "S256")
-        .append_pair("prompt", "select_account");
+        .append_pair("code_challenge_method", "S256");
+    for (k, v) in &provider.authorize_params {
+        url.query_pairs_mut().append_pair(k, v);
+    }
     if let Some(hint) = login_hint.filter(|h| !h.is_empty()) {
         url.query_pairs_mut().append_pair("login_hint", hint);
     }
     Ok(Pending { url: url.into(), verifier, state, redirect_uri, v4, v6 })
 }
 
+/// The browser came back with a code: what a token exchange needs.
+pub struct Authorized {
+    pub code: String,
+    pub verifier: String,
+    pub redirect_uri: String,
+}
+
+impl std::fmt::Debug for Authorized {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Authorized").field("redirect_uri", &self.redirect_uri).finish_non_exhaustive()
+    }
+}
+
 impl Pending {
     /// Wait for the browser to come back (up to `timeout`), then trade the code for tokens.
     pub async fn finish(self, http: &reqwest::Client, provider: &Provider, client_id: &str, timeout: Duration) -> Result<Tokens> {
+        let a = self.authorized(timeout).await?;
+        exchange(http, provider, client_id, &a).await
+    }
+
+    /// Wait for the browser to come back (up to `timeout`) with a code, for
+    /// an exchange done elsewhere (the Remail server holds Google's client secret).
+    pub async fn authorized(self, timeout: Duration) -> Result<Authorized> {
         let code = tokio::time::timeout(timeout, self.wait_for_code())
             .await
             .map_err(|_| anyhow!("The sign-in wasn't finished in time. Please try again."))??;
-        token_request(
-            http,
-            provider,
-            &[
-                ("client_id", client_id),
-                ("grant_type", "authorization_code"),
-                ("code", &code),
-                ("redirect_uri", &self.redirect_uri),
-                ("code_verifier", &self.verifier),
-                ("scope", &provider.scope),
-            ],
-        )
-        .await
+        Ok(Authorized { code, verifier: self.verifier, redirect_uri: self.redirect_uri })
     }
 
     /// Serve the redirect. Connections are handled side by side, each with a
@@ -337,9 +398,40 @@ fn page(title: &str, text: &str) -> String {
     )
 }
 
+/// Trade an authorization code for tokens (PKCE, public client).
+pub async fn exchange(http: &reqwest::Client, provider: &Provider, client_id: &str, a: &Authorized) -> Result<Tokens> {
+    token_request(
+        http,
+        provider,
+        &[
+            ("client_id", client_id),
+            ("grant_type", "authorization_code"),
+            ("code", &a.code),
+            ("redirect_uri", &a.redirect_uri),
+            ("code_verifier", &a.verifier),
+            ("scope", &provider.scope),
+        ],
+    )
+    .await
+}
+
 /// A new access token for `scope` (one service's scopes) from a refresh token.
 pub async fn refresh(http: &reqwest::Client, provider: &Provider, client_id: &str, refresh_token: &str, scope: &str) -> Result<Tokens> {
-    token_request(http, provider, &[("client_id", client_id), ("grant_type", "refresh_token"), ("refresh_token", refresh_token), ("scope", scope)]).await
+    let mut form = vec![("client_id", client_id), ("grant_type", "refresh_token"), ("refresh_token", refresh_token)];
+    if provider.refresh_with_scope {
+        form.push(("scope", scope));
+    }
+    token_request(http, provider, &form).await
+}
+
+/// Tokens from a code exchange the Remail server did (Google with a client secret).
+pub fn tokens_from_server(t: remail_proto::api::GoogleTokens) -> Tokens {
+    Tokens {
+        expires_at: now_ms() + t.expires_in.max(60) * 1000,
+        identity: t.id_token.as_deref().map(identity_from_id_token).unwrap_or_default(),
+        access_token: t.access_token,
+        refresh_token: t.refresh_token,
+    }
 }
 
 async fn token_request(http: &reqwest::Client, provider: &Provider, form: &[(&str, &str)]) -> Result<Tokens> {
@@ -449,6 +541,18 @@ mod tests {
         assert!(!e.consent_refused());
         let declined = parse_redirect("GET /?error=access_denied&error_description=AADSTS65004%3A+User+declined+to+consent&state=s1 HTTP/1.1\r\n\r\n", "s1").unwrap().unwrap_err();
         assert!(declined.downcast_ref::<OAuthError>().unwrap().consent_refused());
+    }
+
+    #[test]
+    fn google_endpoints_and_identity() {
+        let p = Provider::google();
+        assert_eq!(p.authorize_url, "https://accounts.google.com/o/oauth2/v2/auth");
+        assert_eq!(p.token_url, "https://oauth2.googleapis.com/token");
+        assert_eq!(p.consent_scope(), GOOGLE_SCOPE);
+        assert!(p.authorize_params.contains(&("access_type", "offline")) && p.authorize_params.contains(&("prompt", "consent")));
+        let claims = b64url(br#"{"email":"Me@Gmail.com","sub":"1234567890","name":"Me"}"#);
+        let id = identity_from_id_token(&format!("x.{claims}.y"));
+        assert_eq!((id.email.as_deref(), id.subject().as_deref()), (Some("me@gmail.com"), Some("1234567890")));
     }
 
     #[test]

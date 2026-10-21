@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use remail_core::cloud::{Cloud, CloudEvent, CloudOptions, CloudSink, Phase};
 use remail_core::engine::AppSettings;
 use remail_core::secrets::KeyringStore;
 use remail_core::{Engine, EngineEvent, EventSink};
@@ -19,6 +20,8 @@ use tauri_plugin_notification::NotificationExt;
 
 pub struct AppState {
     pub engine: Engine,
+    /// The Remail server connection; mail runs only once it's `ready`.
+    pub cloud: Cloud,
     /// Open compose windows by draft id → window label.
     pub compose_windows: Mutex<HashMap<String, String>>,
     pub next_window: Mutex<u64>,
@@ -108,6 +111,39 @@ impl EventSink for UiSink {
     }
 }
 
+/// Forwards Remail server events to every window (`cloud-event`), and starts
+/// or stops what may only run while signed in.
+struct CloudUi {
+    app: AppHandle,
+    tray: Arc<TrayRefresh>,
+    /// The last phase seen, to act on changes only.
+    phase: Mutex<Option<Phase>>,
+}
+
+impl CloudSink for CloudUi {
+    fn cloud_event(&self, event: CloudEvent) {
+        if let CloudEvent::Status { status } = &event {
+            let changed = self.phase.lock().unwrap().replace(status.phase) != Some(status.phase);
+            if changed {
+                self.tray.request();
+                if status.phase == Phase::Ready {
+                    // Agents may reach mail now (if the user turned the MCP server on).
+                    if let Some(state) = self.app.try_state::<AppState>() {
+                        let engine = state.engine.clone();
+                        tauri::async_runtime::spawn(async move { engine.apply_mcp_server().await });
+                    }
+                }
+            }
+        }
+        let _ = self.app.emit("cloud-event", &event);
+    }
+}
+
+/// Mail is running (signed in to Remail and the setup is here).
+pub fn mail_ready(app: &AppHandle) -> bool {
+    app.try_state::<AppState>().is_some_and(|s| s.cloud.status().phase == Phase::Ready)
+}
+
 fn chrono_now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
@@ -123,9 +159,13 @@ async fn tray_updater(app: AppHandle, engine: Engine, refresh: Arc<TrayRefresh>)
             continue;
         }
         let engine = engine.clone();
-        let unread: i64 = tauri::async_runtime::spawn_blocking(move || engine.unread_counts().map(|m| m.values().sum()).unwrap_or(0))
-            .await
-            .unwrap_or(0);
+        // Signed out: no mail counts in the tray.
+        let ready = mail_ready(&app);
+        let unread: i64 = if ready {
+            tauri::async_runtime::spawn_blocking(move || engine.unread_counts().map(|m| m.values().sum()).unwrap_or(0)).await.unwrap_or(0)
+        } else {
+            0
+        };
         let tip = if unread > 0 { format!("Remail - {unread} unread") } else { "Remail".to_string() };
         if tip != shown {
             if let Some(tray) = app.tray_by_id("main") {
@@ -271,6 +311,10 @@ fn handle_args(app: &AppHandle, args: &[String]) {
         }
     }
     let Some(state) = app.try_state::<AppState>() else { return };
+    if !mail_ready(app) {
+        tracing::info!("ignoring a mailto link: not signed in to Remail yet");
+        return;
+    }
     match state.engine.mailto_draft(url, None) {
         Ok(draft) => {
             let engine = state.engine.clone();
@@ -299,7 +343,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show_main(app),
-            "compose" => {
+            "compose" if mail_ready(app) => {
                 let state = app.state::<AppState>();
                 if let Ok(d) = state.engine.new_draft(None) {
                     let engine = state.engine.clone();
@@ -312,7 +356,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 }
             }
             "calendar" => show_calendar(app),
-            "sync" => app.state::<AppState>().engine.sync_now(None),
+            "sync" if mail_ready(app) => app.state::<AppState>().engine.sync_now(None),
             "quit" => quit(app),
             _ => {}
         })
@@ -364,8 +408,17 @@ pub fn run() {
             };
             let tray_refresh = Arc::new(TrayRefresh::default());
             let sink = Arc::new(UiSink { app: handle.clone(), tray: tray_refresh.clone() });
-            let engine = tauri::async_runtime::block_on(async move { Engine::start(data_dir, secrets, sink) })?;
-            app.manage(AppState { engine, compose_windows: Mutex::new(HashMap::new()), next_window: Mutex::new(0) });
+            let cloud_sink = Arc::new(CloudUi { app: handle.clone(), tray: tray_refresh.clone(), phase: Mutex::new(None) });
+            let device = remail_core::cloud::this_device(&handle.package_info().version.to_string());
+            // Mail waits for the Remail sign-in (the gate): the engine starts locked
+            // and the cloud connection opens it once the session and setup are ready.
+            let (engine, cloud) = tauri::async_runtime::block_on(async move {
+                let engine = Engine::start_locked(data_dir, secrets, sink)?;
+                let cloud = Cloud::new(engine.clone(), cloud_sink, device, CloudOptions::default())?;
+                cloud.start().await?;
+                anyhow::Ok((engine, cloud))
+            })?;
+            app.manage(AppState { engine, cloud, compose_windows: Mutex::new(HashMap::new()), next_window: Mutex::new(0) });
             if let Err(e) = build_tray(&handle) {
                 tracing::warn!("system tray unavailable: {e}");
             }
@@ -382,7 +435,9 @@ pub fn run() {
             for url in early {
                 handle_args(&handle, &[url]);
             }
-            tauri::async_runtime::spawn(async move { engine.apply_mcp_server().await });
+            if mail_ready(&handle) {
+                tauri::async_runtime::spawn(async move { engine.apply_mcp_server().await });
+            }
             Ok(())
         })
         .on_window_event(|window, event| {

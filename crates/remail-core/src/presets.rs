@@ -80,6 +80,11 @@ pub fn microsoft_servers(personal: bool) -> (ServerConfig, ServerConfig) {
     (server("outlook.office365.com", 993, Security::Tls), server(smtp, 587, Security::Starttls))
 }
 
+/// Gmail and Google Workspace, signed in with Google (XOAUTH2).
+pub fn google_servers() -> (ServerConfig, ServerConfig) {
+    (server("imap.gmail.com", 993, Security::Tls), server("smtp.gmail.com", 465, Security::Tls))
+}
+
 /// Common IMAP providers, Gmail (app password over IMAP) and
 /// Microsoft (Outlook.com / Hotmail / Microsoft 365, signed in with OAuth).
 pub fn provider_presets() -> Vec<ProviderPreset> {

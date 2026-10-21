@@ -340,9 +340,7 @@ async fn outlook_calendars() {
     let dir = tempfile::tempdir().unwrap();
     let secrets = Arc::new(MemoryStore::default());
     let engine = Engine::with_store(Store::open(&dir.path().join("remail.db")).unwrap(), secrets.clone(), Arc::new(Quiet)).unwrap();
-    let mut settings = engine.settings();
-    settings.microsoft_client_id = "client-123".into();
-    engine.set_settings(&settings).unwrap();
+    engine.set_org(microsoft_org());
 
     // Adding the Microsoft account connects its calendars by itself.
     let req = OAuthAccountRequest { imap: Some(imap.clone()), smtp: Some(smtp.clone()), ..Default::default() };

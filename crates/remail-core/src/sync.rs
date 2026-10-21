@@ -32,6 +32,8 @@ pub struct SyncOutcome {
     pub changed: usize,
     /// Newly arrived unread INBOX messages (not reported on a folder's first sync).
     pub new_inbox: Vec<String>,
+    /// New mail brought snoozed conversations back (the snoozes are synced setup).
+    pub snoozes_cancelled: bool,
 }
 
 /// What a folder looked like on the server when it was last fully checked.
@@ -141,6 +143,7 @@ pub async fn sync_account(conn: &mut ImapConn, store: &Store, account: &Account,
             Ok(o) => {
                 outcome.changed += o.changed;
                 outcome.new_inbox.extend(o.new_inbox);
+                outcome.snoozes_cancelled |= o.snoozes_cancelled;
             }
             // A dead or desynchronised connection fails every later folder too
             // (or worse, misreads their replies): stop so the worker reconnects.
@@ -236,7 +239,18 @@ fn resolve_thread(store: &Store, inc: &mut IncomingMessage) -> Result<()> {
     Ok(())
 }
 
-/// Fetch and store `uids` in batches; returns `(stored, new unread ids)`.
+/// What `fetch_and_store` did.
+#[derive(Default)]
+struct Stored {
+    count: usize,
+    /// New unread INBOX messages.
+    new_ids: Vec<String>,
+    min_uid: Option<u32>,
+    /// A new message cancelled a snooze.
+    unsnoozed: bool,
+}
+
+/// Fetch and store `uids` in batches.
 async fn fetch_and_store(
     conn: &mut ImapConn,
     store: &Store,
@@ -245,15 +259,13 @@ async fn fetch_and_store(
     uid_validity: u32,
     uids: &[u32],
     report_new: bool,
-) -> Result<(usize, Vec<String>, Option<u32>)> {
-    let mut stored = 0;
-    let mut new_ids = Vec::new();
-    let mut min_uid: Option<u32> = None;
+) -> Result<Stored> {
+    let mut out = Stored::default();
     let now = now_ms();
     for batch in uids.chunks(BATCH_SIZE) {
         let fetched = conn.fetch_messages(&folder.path, batch).await?;
         if let Some(low) = fetched.iter().map(|m| m.uid).min() {
-            min_uid = Some(min_uid.map_or(low, |v| v.min(low)));
+            out.min_uid = Some(out.min_uid.map_or(low, |v| v.min(low)));
         }
         // Parsing (MIME, HTML to text) is CPU work: keep it off the async threads.
         let (acc, fold) = (account.clone(), folder.clone());
@@ -266,17 +278,19 @@ async fn fetch_and_store(
             let thread_id = inc.thread_id.clone();
             let unread = inc.is_unread;
             let (id, inserted) = store.upsert_message(&inc)?;
-            stored += 1;
+            out.count += 1;
             if inserted && report_new {
                 // A new message in a snoozed thread brings it back.
-                let _ = store.cancel_snooze_for_new_mail(&account.id, &thread_id, now);
+                if store.cancel_snooze_for_new_mail(&account.id, &thread_id, now).unwrap_or(false) {
+                    out.unsnoozed = true;
+                }
                 if folder.label_id == labels::INBOX && unread {
-                    new_ids.push(id);
+                    out.new_ids.push(id);
                 }
             }
         }
     }
-    Ok((stored, new_ids, min_uid))
+    Ok(out)
 }
 
 pub async fn sync_folder(
@@ -312,7 +326,7 @@ pub async fn sync_folder(
         let limit = if folder.label_id == labels::INBOX { INITIAL_INBOX_COUNT } else { INITIAL_FOLDER_COUNT };
         let all = if status.exists == 0 { Vec::new() } else { conn.search(&folder.path, "ALL").await? };
         let newest: Vec<u32> = all.iter().rev().take(limit).copied().collect();
-        let (stored, _, min_uid) =
+        let Stored { count: stored, min_uid, .. } =
             fetch_and_store(conn, store, account, folder, status.uid_validity, &newest, false).await?;
         outcome.changed += stored;
         let uid_next = if status.uid_next > 0 { status.uid_next } else { all.last().map_or(1, |u| u + 1) };
@@ -342,10 +356,10 @@ pub async fn sync_folder(
         // `N:*` always matches the highest UID even when it is below N.
         let new: Vec<u32> = found.into_iter().filter(|u| *u >= prev.uid_next).collect();
         if !new.is_empty() {
-            let (stored, new_ids, _) =
-                fetch_and_store(conn, store, account, folder, status.uid_validity, &new, true).await?;
-            outcome.changed += stored;
-            outcome.new_inbox.extend(new_ids);
+            let got = fetch_and_store(conn, store, account, folder, status.uid_validity, &new, true).await?;
+            outcome.changed += got.count;
+            outcome.new_inbox.extend(got.new_ids);
+            outcome.snoozes_cancelled |= got.unsnoozed;
             uid_next = uid_next.max(new.iter().max().copied().unwrap_or(0) + 1);
         }
         if status.uid_next > 0 {
@@ -466,7 +480,7 @@ pub async fn load_more(conn: &mut ImapConn, store: &Store, account: &Account, la
     let older = conn.search(&folder.path, &format!("UID 1:{}{}", floor - 1, unseen)).await?;
     let known: HashSet<u32> = store.local_uids(&account.id, &folder.path, status.uid_validity)?.into_iter().collect();
     let (page, has_more) = older_page(&older, floor, &known);
-    let (stored, _, _) = fetch_and_store(conn, store, account, &folder, status.uid_validity, &page, false).await?;
+    let stored = fetch_and_store(conn, store, account, &folder, status.uid_validity, &page, false).await?.count;
     if !unread_only {
         state.oldest_uid = page.iter().min().copied().or(state.oldest_uid);
         state.fully_synced = !has_more;
@@ -534,7 +548,7 @@ pub async fn server_search(conn: &mut ImapConn, store: &Store, account: &Account
         if Instant::now() >= deadline {
             break;
         }
-        let (n, _, _) = fetch_and_store(conn, store, account, &f, uidv, &uids, false).await?;
+        let n = fetch_and_store(conn, store, account, &f, uidv, &uids, false).await?.count;
         stored += n;
     }
     Ok(stored)

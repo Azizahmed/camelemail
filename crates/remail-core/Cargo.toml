@@ -39,10 +39,16 @@ regex = "1"
 once_cell = "1"
 base64 = "0.22"
 ring = "0.17"
+remail-proto = { path = "../remail-proto" }
+# Change notices from the Remail server (TLS is set up with the same rustls config as IMAP).
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+# The real server in-process, for tests/platform_e2e.rs.
+remail-server = { path = "../remail-server", features = ["testing"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 axum = { version = "0.8", default-features = false, features = ["tokio", "http1", "json"] }

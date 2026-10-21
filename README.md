@@ -82,6 +82,19 @@ Windows and macOS packages are built by GitHub Actions (`.github/workflows/build
 `REMAIL_DATA_DIR=/some/dir remail` runs a separate profile, with credentials kept in a private file
 instead of the keyring. This is handy for testing.
 
+## Remail account and server
+
+Remail signs in to a Remail account. The server (`crates/remail-server`, Rust + Postgres) keeps
+your setup, never your mail: mail accounts and their credentials, calendars, signatures, templates,
+sender rules, snoozes, preferences and shortcuts, each encrypted under your own data key. A second
+computer that signs in gets the same setup and talks to the mail servers itself. Organisations
+choose which mailbox providers their users may add, the Microsoft and Google app IDs, and the
+sign-in policies (two-step sign-in, sessions).
+
+- Running a server, its environment and CLI: [crates/remail-server/README.md](crates/remail-server/README.md)
+- Design (sync, encryption, API, threat model): [docs/platform/design.md](docs/platform/design.md);
+  the desktop side: [docs/platform/client-contract.md](docs/platform/client-contract.md)
+
 ## Calendar
 
 The calendar lives in the main window: switch with the Mail/Calendar control at the top left (or
@@ -133,8 +146,9 @@ once (free, with any Microsoft account):
 2. Name it *Remail*. Supported account types: **Accounts in any organizational directory and
    personal Microsoft accounts**.
 3. Redirect URI: platform **Public client/native (mobile & desktop)**, URI `http://localhost`.
-4. Register, and paste the **Application (client) ID** into Remail (it asks the first time, or
-   Settings → Accounts → Microsoft sign-in). To build it in, set `REMAIL_MS_CLIENT_ID` when building.
+4. Register, and give the **Application (client) ID** to your organisation's Remail server: an
+   admin puts it in the org config (`providers.microsoftApp.clientId`, see
+   [the server README](crates/remail-server/README.md)), and every device of the org uses it.
 
 Remail asks for `IMAP.AccessAsUser.All`, `SMTP.Send` and `offline_access` for mail, and in the same
 sign-in `Calendars.ReadWrite` and `Calendars.Read.Shared` for the calendar (Microsoft Graph; neither
@@ -188,6 +202,9 @@ cargo test -p remail-core             # unit tests (MIME, compose, search, Smart
                                       # + tests/assistant.rs: tool loop vs mock OpenAI/Anthropic, MCP server
 ./scripts/test-server.sh              # starts a throwaway GreenMail IMAP/SMTP server in Docker
 REMAIL_IT=1 cargo test -p remail-core --test greenmail   # end-to-end against the real server
+eval "$(scripts/test-postgres.sh)"    # throwaway Postgres for the Remail server's tests
+cargo test -p remail-server           # sign-in, sync, keys, licences, allow-list
+REMAIL_PLATFORM_IT=1 cargo test -p remail-core --test platform_e2e   # real client + real server + GreenMail
 pnpm check                            # type-check the UI
 pnpm test                             # UI unit tests (quick add, Markdown, dates, right-to-left text)
 cargo run --release -p remail-core --example bench_store -- 100000   # time the hot queries on 100k messages

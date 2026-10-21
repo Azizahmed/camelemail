@@ -561,4 +561,6 @@ pub enum EngineEvent {
     /// An event's alert is due.
     #[serde(rename_all = "camelCase")]
     EventReminder { summary: String, start_ms: i64, location: String, all_day: bool, day: String },
+    /// Preferences or shortcuts changed on another device: reload them.
+    SettingsChanged,
 }
