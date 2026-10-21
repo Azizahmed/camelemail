@@ -76,6 +76,7 @@ export const ar: Record<MessageKey, string> = {
   "signup.passwordHint": "10 أحرف على الأقل. بضع كلمات لا رابط بينها تصنع كلمة مرور قوية.",
   "signup.invite": "رمز الدعوة",
   "signup.invitePlaceholder": "الصق الرابط أو الرمز الوارد في دعوتك",
+  "signup.haveInvite": "لديك رمز دعوة؟",
   "signup.submit": "إنشاء الحساب",
   "signup.haveAccount": "لديك حساب بالفعل؟",
 

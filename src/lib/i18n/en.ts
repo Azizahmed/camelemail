@@ -74,6 +74,7 @@ export const en = {
   "signup.passwordHint": "At least 10 characters. A few unrelated words make a strong password.",
   "signup.invite": "Invitation code",
   "signup.invitePlaceholder": "Paste the link or code from your invitation",
+  "signup.haveInvite": "Have an invitation code?",
   "signup.submit": "Create account",
   "signup.haveAccount": "Already have an account?",
 

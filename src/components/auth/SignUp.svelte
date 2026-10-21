@@ -27,6 +27,8 @@
   let name = $state("");
   let password = $state("");
   let invite = $state("");
+  // Open sign-up still takes invitations (an invited account needs no e-mail check).
+  let showInvite = $state(false);
   let busy = $state(false);
   let error = $state("");
 
@@ -66,15 +68,17 @@
 
 <AuthScreen title={t("signup.title")} lead={t("signup.body")} {onback}>
   <form class="au-form" onsubmit={submit}>
-    {#if needsInvite}
+    {#if needsInvite || showInvite}
       <div class="au-field">
         <label for="su-invite">{t("signup.invite")}</label>
-        <input id="su-invite" class="input" dir="ltr" bind:value={invite} placeholder={t("signup.invitePlaceholder")} spellcheck="false" autocapitalize="off" required use:autofocus />
+        <input id="su-invite" class="input" dir="ltr" bind:value={invite} placeholder={t("signup.invitePlaceholder")} spellcheck="false" autocapitalize="off" required={needsInvite} use:autofocus />
       </div>
+    {:else}
+      <button type="button" class="au-link small invite-toggle" onclick={() => (showInvite = true)}>{t("signup.haveInvite")}</button>
     {/if}
     <div class="au-field">
       <label for="su-name">{t("common.name")}</label>
-      <input id="su-name" class="input" dir="auto" bind:value={name} placeholder={t("common.namePlaceholder")} autocomplete="name" required use:autofocus={!needsInvite} />
+      <input id="su-name" class="input" dir="auto" bind:value={name} placeholder={t("common.namePlaceholder")} autocomplete="name" required use:autofocus={!needsInvite && !showInvite} />
     </div>
     <div class="au-field">
       <label for="su-email">{t("common.email")}</label>
@@ -94,3 +98,9 @@
     <button type="button" class="au-link" onclick={onsignin}>{t("welcome.signIn")}</button>
   {/snippet}
 </AuthScreen>
+
+<style>
+  .invite-toggle {
+    align-self: flex-start;
+  }
+</style>
