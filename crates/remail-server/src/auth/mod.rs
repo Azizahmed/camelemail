@@ -186,6 +186,12 @@ async fn signup(
         None if s.cfg.mode == Mode::Onprem => {
             return Err(AppError::new(ErrorCode::InviteRequired, "Ask your administrator for an invite."));
         }
+        None if !s.mailer.configured() => {
+            return Err(AppError::new(
+                ErrorCode::InviteRequired,
+                "This server can't send e-mail yet, so it only accepts invitations.",
+            ));
+        }
         None => match orgs::by_slug(&s.db, orgs::PUBLIC_SLUG).await? {
             Some(org) if org.signup_mode == "open" => (org, "user".to_string(), None),
             _ => return Err(AppError::new(ErrorCode::SignupClosed, "Sign-up is closed.")),
@@ -202,8 +208,14 @@ async fn signup(
     }
     password::check_strength(password.expose(), &email, &name)?;
 
-    if user_by_email(&s, &email).await?.is_some() {
-        if invite.is_some() {
+    if let Some(existing) = user_by_email(&s, &email).await? {
+        if let Some(h) = &invite_hash {
+            // An address nobody ever confirmed has no owner yet: it can't sign
+            // in and holds no data, so an invitation for it takes it over.
+            if existing.email_verified_at.is_none() && existing.org_id == org.id {
+                claim_unconfirmed(&s, ip, &existing, h, &name, &role, locale, password.expose()).await?;
+                return Ok((StatusCode::ACCEPTED, ApiJson(SignupResponse { verify: "none".into() })));
+            }
             return Err(AppError::new(ErrorCode::EmailTaken, "There's already an account with this e-mail."));
         }
         // Open sign-up doesn't reveal which addresses have accounts: the
@@ -275,6 +287,61 @@ async fn signup(
     .await;
     let verify = if verified { "none" } else { "email" };
     Ok((StatusCode::ACCEPTED, ApiJson(SignupResponse { verify: verify.into() })))
+}
+
+/// An invitation used on an address whose account was never confirmed: the
+/// account gets the invitation's role, the new name and password, and counts
+/// as confirmed (the invitation stands in for the e-mail check).
+#[allow(clippy::too_many_arguments)]
+async fn claim_unconfirmed(
+    s: &AppState,
+    ip: Option<std::net::IpAddr>,
+    user: &UserRow,
+    invite_hash: &[u8],
+    name: &str,
+    role: &str,
+    locale: &str,
+    password: &str,
+) -> AppResult<()> {
+    crate::licence::check_seat(&s.cfg, &s.db, &s.env).await?;
+    let hash = password::hash(&s.cfg, password).await?;
+    let mut tx = s.db.begin().await?;
+    if !tokens::consume(&mut *tx, invite_hash).await? {
+        return Err(AppError::new(ErrorCode::InvalidToken, "This invite was already used."));
+    }
+    let updated = sqlx::query(
+        "update users set name = $2, role = $3, locale = $4, password_hash = $5, email_verified_at = now(),
+           failed_logins = 0, locked_until = null
+         where id = $1 and email_verified_at is null",
+    )
+    .bind(&user.id)
+    .bind(name)
+    .bind(role)
+    .bind(locale)
+    .bind(&hash)
+    .execute(&mut *tx)
+    .await?;
+    if updated.rows_affected() != 1 {
+        return Err(AppError::new(ErrorCode::EmailTaken, "There's already an account with this e-mail."));
+    }
+    // The old confirmation link must not work any more.
+    sqlx::query("update auth_tokens set used_at = now() where user_id = $1 and kind = $2 and used_at is null")
+        .bind(&user.id)
+        .bind(tokens::VERIFY)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    session::revoke_user_devices(s, &user.id, None).await?;
+    audit::log(
+        &s.db,
+        Event::new("auth.signup.claim", Actor::User(&user.id))
+            .org(&user.org_id)
+            .target(&user.id)
+            .ip(ip)
+            .meta(json!({"invite": true, "role": role})),
+    )
+    .await;
+    Ok(())
 }
 
 async fn verify(State(s): State<AppState>, ClientIp(ip): ClientIp, ApiJson(req): ApiJson<TokenRequest>) -> AppResult<StatusCode> {

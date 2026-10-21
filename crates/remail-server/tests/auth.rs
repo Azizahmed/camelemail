@@ -406,3 +406,52 @@ async fn hosted_owner_invite_until_an_owner_exists() {
     assert!(again.is_none());
     s.finish().await;
 }
+
+/// Without mail delivery, open sign-up would strand people on "check your
+/// inbox": the server takes invitations only, and says so in /v1/meta.
+#[tokio::test]
+async fn no_mail_means_invitations_only() {
+    let Some(s) = start_with(Mode::Hosted, |c| c.dev_mail = false).await else { return };
+    let meta = s.get("/meta", None).await;
+    assert_eq!(meta.body["signup"], "invite");
+    let r = s.post("/auth/signup", json!({"name": "A", "email": "a@example.com", "password": PASSWORD}), None).await;
+    assert_eq!(r.code(), "invite_required", "{:?}", r.body);
+    s.finish().await;
+}
+
+/// Someone who signed up but never confirmed (no mail arrived) can still use
+/// an invitation for the same address: it takes the unconfirmed account over.
+#[tokio::test]
+async fn invite_claims_an_unconfirmed_address() {
+    let Some(s) = start(Mode::Hosted).await else { return };
+    let email = "stuck@example.com";
+    let r = s.post("/auth/signup", json!({"name": "Old", "email": email, "password": PASSWORD}), None).await;
+    assert_eq!(r.status, 202);
+    let old_verify = s.mailed_token(email, "verify").await;
+    assert_eq!(s.login(email, PASSWORD, "Laptop").await.code(), "email_not_verified");
+
+    let invite = s.first_invite.clone().unwrap().split("t=").nth(1).unwrap().to_string();
+    let new_password = "maple harbour quiet seventeen";
+    let r = s
+        .post("/auth/signup", json!({"name": "Owner", "email": email, "password": new_password, "invite": invite}), None)
+        .await;
+    assert_eq!(r.status, 202, "{:?}", r.body);
+    assert_eq!(r.body["verify"], "none");
+    let r = s.login(email, new_password, "Laptop").await;
+    assert_eq!(r.status, 200, "{:?}", r.body);
+    assert_eq!(r.body["user"]["role"], "owner");
+    assert_eq!(r.body["user"]["name"], "Owner");
+    assert_eq!(s.login(email, PASSWORD, "Laptop").await.code(), "invalid_credentials");
+    // The old confirmation link is dead, and the invitation is used up.
+    assert_eq!(s.post("/auth/verify", json!({"token": old_verify}), None).await.code(), "invalid_token");
+    let r = s.post("/auth/signup", json!({"name": "X", "email": "x@example.com", "password": PASSWORD, "invite": invite}), None).await;
+    assert_eq!(r.code(), "invalid_token");
+
+    // A confirmed account is never taken over.
+    let other = remail_server::auth::tokens::create_invite(&s.db, &s.org_id().await, None, "user").await.unwrap();
+    let r = s
+        .post("/auth/signup", json!({"name": "Thief", "email": email, "password": new_password, "invite": other.expose()}), None)
+        .await;
+    assert_eq!(r.code(), "email_taken");
+    s.finish().await;
+}
