@@ -1,0 +1,66 @@
+# Builds the remail-server image (deploy/server/build.Dockerfile), pushes it to
+# GHCR, then pins the root Dockerfile to the new image digest. The hosting
+# platform builds from that root Dockerfile, so it only pulls a ready image.
+name: Server image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "deploy/server/build.Dockerfile"
+      - ".github/workflows/server-image.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: server-image
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/azizahmed/remail-server
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/server/build.Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Pin the root Dockerfile to this image
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          git fetch --depth=1 origin main && git checkout -B main FETCH_HEAD
+          sed -i "s|^FROM ghcr.io/azizahmed/remail-server.*|FROM $IMAGE@$DIGEST|" Dockerfile
+          if git diff --quiet; then echo "Dockerfile already up to date"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Deploy remail-server ${GITHUB_SHA::7}"
+          git push origin HEAD:main
