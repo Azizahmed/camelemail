@@ -34,6 +34,7 @@ It also needs a PostgreSQL database (16 or newer).
 | `REMAIL_PUBLIC_URL` | The app's public `https://` address (used in e-mail and invite links) |
 | `REMAIL_MODE` | `hosted` (the image default) or `onprem` |
 | `REMAIL_SMTP_URL`, `REMAIL_MAIL_FROM` | Optional. Without them, nothing is e-mailed (see "First account"). |
+| `REMAIL_SNDR_API_KEY` | Alternative to SMTP: an API key for SNDR, CranL's e-mail service (`REMAIL_MAIL_FROM` must use a domain verified there). **Secret.** |
 
 The image already sets `PORT=8080`, `REMAIL_TRUST_PROXY=1` (client addresses come from the
 platform's proxy) and plain-text logs.
@@ -64,8 +65,9 @@ No owner yet: create the owner account with this one-time invite (7 days):
 ```
 
 Open it, then in the Remail app choose **Create account** and paste the invitation code. Invited
-accounts need no e-mail confirmation. Open sign-up for everyone else needs `REMAIL_SMTP_URL`, so
-that verification links can be delivered.
+accounts need no e-mail confirmation. While no mail is configured (`REMAIL_SMTP_URL` or
+`REMAIL_SNDR_API_KEY`), sign-up takes invitations only; once mail works, sign-up is open with an
+e-mailed confirmation link.
 
 ## Checks
 
