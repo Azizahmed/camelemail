@@ -294,6 +294,8 @@ export interface AppSettings {
   calendar: import("./calendar.svelte").CalendarPrefs;
   /** App (client) ID for "Sign in with Microsoft"; empty: the built-in one. */
   microsoftClientId: string;
+  /** Admin: the email providers accounts may be added for. */
+  providers: ProviderAccess;
 }
 
 export type CleanKind = "promotions" | "updates" | "social" | "forums" | "otp";
@@ -441,4 +443,10 @@ export interface ImportedServer {
   source: string;
   path: string;
   config: McpServerConfig;
+}
+
+export interface ProviderAccess {
+  gmail: boolean;
+  outlook: boolean;
+  other: boolean;
 }

@@ -105,7 +105,7 @@
 </script>
 
 {#if s}
-  <h1>AI Assistant</h1>
+  <h2>AI assistance</h2>
   <p class="intro">
     Summaries, reply suggestions, rewriting and a chat assistant that can search and act on your mail. Bring your own key from any
     OpenAI-compatible or Anthropic-compatible provider, or run a local model.
@@ -187,10 +187,11 @@
 {/if}
 
 <style>
-  h1 {
-    margin: 0 0 18px;
-    font-size: 20px;
-    line-height: 26px;
+  /* A part of the Admin page. */
+  h2 {
+    margin: 32px 0 14px;
+    font-size: 16px;
+    line-height: 22px;
     font-weight: 600;
   }
   .intro {

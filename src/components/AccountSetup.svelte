@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { ChevronRight, KeyRound, ExternalLink, ShieldCheck } from "@lucide/svelte";
+  import Select from "./Select.svelte";
+  import { ChevronLeft, ChevronRight, KeyRound, ExternalLink, Mail, ShieldCheck } from "@lucide/svelte";
   import { api, errorText } from "../lib/api";
   import { toast } from "../lib/ui.svelte";
-  import type { Account, NewAccount, ProviderPreset, Security, ServerConfig } from "../lib/types";
+  import type { Account, NewAccount, ProviderAccess, ProviderPreset, Security, ServerConfig } from "../lib/types";
 
   let {
     mode,
@@ -45,7 +46,31 @@
 
   $effect(() => {
     api.providerPresets().then((p) => (presets = p)).catch(() => {});
+    api.getSettings().then((s) => (allowed = s.providers)).catch(() => {});
   });
+
+  // Adding: first pick one of the providers the admin allows (Settings → Admin).
+  type Choice = keyof ProviderAccess;
+  let allowed = $state<ProviderAccess>({ gmail: true, outlook: true, other: true });
+  let picked = $state<Choice | null>(null);
+  const choices = $derived((["gmail", "outlook", "other"] as Choice[]).filter((c) => allowed[c]));
+  /** The provider being set up; with a single one allowed there is nothing to choose. */
+  const choice = $derived(mode === "add" ? (picked ?? (choices.length === 1 ? choices[0] : null)) : null);
+
+  function choose(c: Choice) {
+    picked = c;
+    error = "";
+    if (c === "gmail") {
+      const g = presets.find((p) => p.id === "gmail");
+      if (g) {
+        imap = { ...g.imap };
+        smtp = { ...g.smtp };
+        serversTouched = true;
+      }
+    } else if (c === "other") {
+      serversTouched = false;
+    }
+  }
 
   const domain = $derived(email.trim().split("@")[1]?.toLowerCase() ?? "");
   const preset = $derived(domain ? presets.find((p) => p.domains.some((d) => d.toLowerCase() === domain)) : undefined);
@@ -58,7 +83,11 @@
       !!account &&
       (account.auth === "microsoft" || preset?.oauth === "microsoft" || account.imap.host.toLowerCase() === "outlook.office365.com"),
   );
-  const microsoftEmail = $derived(mode === "add" && preset?.oauth === "microsoft");
+  /** Password help: Gmail's when setting up Gmail (Workspace domains don't match its preset). */
+  const helpPreset = $derived(choice === "gmail" ? presets.find((p) => p.id === "gmail") : preset);
+  const microsoftEmail = $derived(mode === "add" && choice !== "other" && preset?.oauth === "microsoft");
+  /** An address that belongs under another choice (a Gmail address typed under "Other"). */
+  const otherFamily = $derived(choice === "other" && preset ? (preset.id === "gmail" ? "gmail" : preset.oauth === "microsoft" ? "outlook" : null) : null);
   let msState = $state<"idle" | "setup" | "waiting">("idle");
   let clientId = $state("");
 
@@ -142,7 +171,13 @@
   async function submit(e: Event) {
     e.preventDefault();
     if (busy) return;
-    if (microsoftEmail || microsoftAccount) return signInWithMicrosoft();
+    if (microsoftEmail || microsoftAccount || choice === "outlook") return signInWithMicrosoft();
+    if (otherFamily) {
+      error = allowed[otherFamily]
+        ? `For this address choose ${otherFamily === "gmail" ? "Gmail" : "Outlook"} instead.`
+        : `${otherFamily === "gmail" ? "Gmail" : "Outlook and Microsoft 365"} accounts aren't allowed in Remail. They can be turned on in Settings → Admin.`;
+      return;
+    }
     if (!imap.host.trim() && !serversTouched) await guess();
     if (!validEmail || !password) {
       error = !validEmail ? "Enter a valid email address." : "Enter your password.";
@@ -188,7 +223,41 @@
     <h2 class="title">{mode === "add" ? "Add an account" : "Re-authenticate"}</h2>
   {/if}
 
-  {#if mode === "add" || microsoftAccount}
+  {#if mode === "add" && !choice}
+    {#if choices.length === 0}
+      <div class="error" role="alert">No email provider is allowed. Turn one on in Settings → Admin.</div>
+    {:else}
+      <div class="choices">
+        {#if allowed.gmail}
+          <button type="button" class="choice" onclick={() => choose("gmail")}>
+            <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#4285F4" d="M6 40h7V22L4 15v22a3 3 0 0 0 2 3z"/><path fill="#34A853" d="M35 40h7a3 3 0 0 0 2-3V15l-9 7z"/><path fill="#FBBC04" d="M35 10v12l9-7v-3c0-3-3.4-4.6-5.8-2.8z"/><path fill="#EA4335" d="M13 22V10l11 8.3L35 10v12l-11 8.3z"/><path fill="#C5221F" d="M4 12v3l9 7V10l-3.2-2.8C7.4 5.4 4 7 4 12z"/></svg>
+            <span class="choice-name">Gmail</span>
+          </button>
+        {/if}
+        {#if allowed.outlook}
+          <button type="button" class="choice" onclick={() => choose("outlook")}>
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect width="7.5" height="7.5" fill="#f25022" /><rect x="8.5" width="7.5" height="7.5" fill="#7fba00" /><rect y="8.5" width="7.5" height="7.5" fill="#00a4ef" /><rect x="8.5" y="8.5" width="7.5" height="7.5" fill="#ffb900" /></svg>
+            <span class="choice-name">Outlook and Microsoft 365</span>
+          </button>
+        {/if}
+        {#if allowed.other}
+          <button type="button" class="choice" onclick={() => choose("other")}>
+            <Mail size={17} />
+            <span class="choice-name">Other email</span>
+          </button>
+        {/if}
+      </div>
+    {/if}
+    {#if oncancel}
+      <div class="actions"><button type="button" class="btn" onclick={oncancel}>Cancel</button></div>
+    {/if}
+  {:else}
+
+  {#if mode === "add" && choices.length > 1}
+    <button type="button" class="back" onclick={() => { picked = null; error = ""; }}><ChevronLeft size={14} /> All providers</button>
+  {/if}
+
+  {#if choice === "outlook" || microsoftAccount}
     <div class="ms">
       <button type="button" class="ms-btn" disabled={busy} onclick={signInWithMicrosoft}>
         <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect width="7.5" height="7.5" fill="#f25022" /><rect x="8.5" width="7.5" height="7.5" fill="#7fba00" /><rect y="8.5" width="7.5" height="7.5" fill="#00a4ef" /><rect x="8.5" y="8.5" width="7.5" height="7.5" fill="#ffb900" /></svg>
@@ -229,10 +298,9 @@
         </div>
       {/if}
     </div>
-    {#if mode === "add"}<div class="or"><span>or use a password</span></div>{/if}
   {/if}
 
-  {#if !microsoftAccount}
+  {#if !microsoftAccount && choice !== "outlook"}
   <div class="field">
     <label for="as-name">Name</label>
     <input id="as-name" class="input" bind:value={displayName} placeholder="Your name" autocomplete="name" />
@@ -259,7 +327,8 @@
   <div class="field">
     <label for="as-pass">Password</label>
     <input id="as-pass" class="input" type="password" bind:value={password} placeholder={mode === "edit" ? "Re-enter your password" : "Password or app password"} autocomplete="current-password" />
-    {#if preset}
+    {#if helpPreset}
+      {@const preset = helpPreset}
       <div class="help">
         <KeyRound size={14} />
         <div>
@@ -275,7 +344,7 @@
   </div>
   {/if}
 
-  {#if !microsoftEmail}
+  {#if !microsoftEmail && choice !== "gmail"}
   <button type="button" class="disclosure" aria-expanded={showServers} onclick={() => (showServers = !showServers)}>
     <span class="chev" class:open={showServers}><ChevronRight size={14} /></span>
     Server settings
@@ -295,9 +364,7 @@
         </div>
         <div class="field sec">
           <label for="as-imap-sec">Security</label>
-          <select id="as-imap-sec" class="input" value={imap.security} onchange={(e) => setSecurity("imap", e.currentTarget.value as Security)}>
-            {#each SECURITY as s}<option value={s.value}>{s.label}</option>{/each}
-          </select>
+          <Select id="as-imap-sec" value={imap.security} options={SECURITY} onchange={(v) => setSecurity("imap", v)} />
         </div>
       </div>
 
@@ -313,9 +380,7 @@
         </div>
         <div class="field sec">
           <label for="as-smtp-sec">Security</label>
-          <select id="as-smtp-sec" class="input" value={smtp.security} onchange={(e) => setSecurity("smtp", e.currentTarget.value as Security)}>
-            {#each SECURITY as s}<option value={s.value}>{s.label}</option>{/each}
-          </select>
+          <Select id="as-smtp-sec" value={smtp.security} options={SECURITY} onchange={(v) => setSecurity("smtp", v)} />
         </div>
       </div>
 
@@ -340,7 +405,7 @@
     {#if oncancel}
       <button type="button" class="btn" onclick={oncancel} disabled={busy}>Cancel</button>
     {/if}
-    {#if !microsoftAccount}
+    {#if !microsoftAccount && choice !== "outlook"}
       <button type="submit" class="btn primary" disabled={busy || !email.trim() || (!password && !microsoftEmail)}>
         {#if busy && msState !== "waiting"}
           <span class="spinner"></span> Checking connection…
@@ -352,6 +417,8 @@
       </button>
     {/if}
   </div>
+
+  {/if}
 
   <p class="privacy"><ShieldCheck size={13} /> {PRIVACY_NOTE}</p>
 </form>
@@ -562,18 +629,46 @@
     font-size: 11.5px;
     user-select: text;
   }
-  .or {
+  .choices {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .choice {
     display: flex;
     align-items: center;
-    gap: 10px;
-    font-size: 11.5px;
-    color: var(--content-muted);
+    gap: 12px;
+    height: 44px;
+    padding: 0 14px;
+    border-radius: var(--radius-lg);
+    border: 0.5px solid var(--separator);
+    background: var(--surface-overlay);
+    color: var(--content);
+    font-size: 13.5px;
+    font-weight: 500;
+    text-align: start;
   }
-  .or::before,
-  .or::after {
-    content: "";
-    flex: 1;
-    border-top: 0.5px solid var(--separator);
+  .choice:hover {
+    border-color: var(--content-muted);
+    background: var(--surface-hover);
+  }
+  .choice :global(svg) {
+    flex: none;
+    color: var(--icon);
+  }
+  .back {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    border: none;
+    background: none;
+    padding: 0;
+    font-size: 12px;
+    color: var(--content-subtle);
+  }
+  .back:hover {
+    color: var(--content);
   }
   .privacy {
     display: flex;

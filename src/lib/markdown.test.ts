@@ -38,7 +38,7 @@ describe("renderMarkdown", () => {
   it("renders emphasis, headings, lists and code blocks", () => {
     expect(renderMarkdown("**bold** and *it* and _it_")).toBe('<p dir="auto"><b>bold</b> and <i>it</i> and <i>it</i></p>');
     expect(renderMarkdown("## Title")).toBe('<h4 dir="auto">Title</h4>');
-    expect(renderMarkdown("- a\n- b\n\n1. c")).toBe('<ul dir="auto"><li dir="auto">a</li><li dir="auto">b</li></ul><ol dir="auto"><li dir="auto">c</li></ol>');
+    expect(renderMarkdown("- a\n- b\n\n1. c")).toBe('<ul dir="ltr"><li dir="auto">a</li><li dir="auto">b</li></ul><ol dir="ltr"><li dir="auto">c</li></ol>');
     expect(renderMarkdown("```\n<b>x</b>\n```")).toBe("<pre><code>&lt;b&gt;x&lt;/b&gt;</code></pre>");
     expect(renderMarkdown("```\nunclosed")).toBe("<pre><code>unclosed</code></pre>");
   });
@@ -68,5 +68,9 @@ describe("renderMarkdown hostile input", () => {
     expect(out).not.toMatch(/<b>|<code>[^<]*<\/code>[^<]*<code>/);
     expect(out.match(/<code>/g)?.length).toBe(1);
     expect(out.match(/<a /g)?.length).toBe(1);
+  });
+
+  it("gives an Arabic list a right-to-left direction of its own", () => {
+    expect(renderMarkdown("- أرسل الملف\n- ok")).toContain('<ul dir="rtl">');
   });
 });

@@ -20,6 +20,40 @@ pub struct ProviderPreset {
     pub oauth: Option<&'static str>,
 }
 
+/// The provider families an admin can allow or block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderKind {
+    Gmail,
+    Outlook,
+    Other,
+}
+
+impl ProviderKind {
+    pub fn name(self) -> &'static str {
+        match self {
+            ProviderKind::Gmail => "Gmail",
+            ProviderKind::Outlook => "Outlook and Microsoft 365",
+            ProviderKind::Other => "Other providers",
+        }
+    }
+}
+
+const GMAIL_DOMAINS: &[&str] = &["gmail.com", "googlemail.com"];
+
+/// Which family an account belongs to, by its address or its IMAP server
+/// (Google Workspace and Microsoft 365 use their own domains).
+pub fn provider_kind(email: &str, imap_host: &str) -> ProviderKind {
+    let domain = email.rsplit('@').next().unwrap_or("").trim().to_ascii_lowercase();
+    let host = imap_host.trim().to_ascii_lowercase();
+    if GMAIL_DOMAINS.contains(&domain.as_str()) || host == "imap.gmail.com" || host == "imap.googlemail.com" {
+        ProviderKind::Gmail
+    } else if MICROSOFT_DOMAINS.contains(&domain.as_str()) || host == "outlook.office365.com" || host.ends_with(".outlook.com") {
+        ProviderKind::Outlook
+    } else {
+        ProviderKind::Other
+    }
+}
+
 fn server(host: &str, port: u16, security: Security) -> ServerConfig {
     ServerConfig { host: host.to_string(), port, security }
 }
@@ -63,7 +97,7 @@ pub fn provider_presets() -> Vec<ProviderPreset> {
         ProviderPreset {
             id: "gmail",
             name: "Gmail",
-            domains: &["gmail.com", "googlemail.com"],
+            domains: GMAIL_DOMAINS,
             imap: server("imap.gmail.com", 993, Security::Tls),
             smtp: server("smtp.gmail.com", 465, Security::Tls),
             password_help: "Turn on 2-Step Verification, then create an app password for Remail.",
@@ -377,5 +411,14 @@ mod tests {
         assert_eq!(guess_servers("a@corp.test").0.host, "imap.corp.test");
         assert_eq!(parse_hhmm("08:30"), Some(hm(8, 30)));
         assert_eq!(parse_hhmm("8:30"), None);
+    }
+
+    #[test]
+    fn provider_families() {
+        assert_eq!(provider_kind("a@gmail.com", ""), ProviderKind::Gmail);
+        assert_eq!(provider_kind("a@company.com", "imap.gmail.com"), ProviderKind::Gmail);
+        assert_eq!(provider_kind("a@hotmail.com", ""), ProviderKind::Outlook);
+        assert_eq!(provider_kind("a@company.com", "outlook.office365.com"), ProviderKind::Outlook);
+        assert_eq!(provider_kind("a@icloud.com", "imap.mail.me.com"), ProviderKind::Other);
     }
 }

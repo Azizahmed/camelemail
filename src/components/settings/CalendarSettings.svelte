@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Select from "../Select.svelte";
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import { CalendarPlus, Check, Link, MapPin, RefreshCw, Trash2, X } from "@lucide/svelte";
@@ -320,10 +321,13 @@
 </div>
 <div class="row">
   <div class="row-label">Calendar for new events</div>
-  <select class="input sel" value={prefs.defaultCalendar ?? ""} onchange={(e) => setPrefs({ defaultCalendar: e.currentTarget.value || null })}>
-    <option value="">First calendar</option>
-    {#each accounts.flatMap((a) => a.calendars.filter((c) => !c.readOnly)) as c (c.id)}<option value={c.id}>{c.name} — {c.accountName}</option>{/each}
-  </select>
+  <Select
+    width={220}
+    label="Default calendar"
+    value={prefs.defaultCalendar ?? ""}
+    options={[{ value: "", label: "First calendar" }, ...accounts.flatMap((a) => a.calendars.filter((c) => !c.readOnly)).map((c) => ({ value: c.id, label: `${c.name} — ${c.accountName}` }))]}
+    onchange={(v) => setPrefs({ defaultCalendar: v || null })}
+  />
 </div>
 
 <div class="group-title">Weather</div>
@@ -550,10 +554,6 @@
     margin-top: 2px;
     font-size: 12px;
     color: var(--content-subtle);
-  }
-  .sel {
-    width: auto;
-    min-width: 180px;
   }
   .seg {
     display: inline-flex;

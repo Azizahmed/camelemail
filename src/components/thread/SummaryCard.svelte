@@ -2,6 +2,7 @@
   import { RefreshCw, Sparkles, Square, X } from "@lucide/svelte";
   import { onDestroy, onMount } from "svelte";
   import { api, errorText, newRequestId } from "../../lib/api";
+  import { textDirection } from "../../lib/bidi";
   import { openLinks, renderMarkdown } from "../../lib/markdown";
 
   let { accountId, threadId, onclose }: { accountId: string; threadId: string; onclose: () => void } = $props();
@@ -71,7 +72,8 @@
     <div class="thinking"><span class="spinner"></span> Reading the conversation…</div>
   {:else}
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <div class="md selectable" onclick={openLinks}>{@html renderMarkdown(text)}</div>
+    <!-- The whole card follows the summary's language, so an Arabic summary lines up on the right. -->
+    <div class="md selectable" dir={textDirection(text) ?? "auto"} onclick={openLinks}>{@html renderMarkdown(text)}</div>
   {/if}
 </div>
 
@@ -110,6 +112,7 @@
   .md {
     font-size: 13px;
     line-height: 1.5;
+    overflow-wrap: anywhere;
   }
   .md :global(p) {
     margin: 4px 0;
@@ -117,10 +120,21 @@
   .md :global(ul),
   .md :global(ol) {
     margin: 4px 0;
-    padding-left: 20px;
+    padding-inline-start: 20px;
+    padding-inline-end: 0;
+  }
+  /* An item in the other language keeps its bullet beside its text. */
+  .md :global(:is(ul, ol):dir(ltr) > li:dir(rtl)),
+  .md :global(:is(ul, ol):dir(rtl) > li:dir(ltr)) {
+    list-style-position: inside;
   }
   .md :global(li) {
     margin: 2px 0;
+    text-align: start;
+  }
+  .md :global(p),
+  .md :global(h4) {
+    text-align: start;
   }
   .md :global(h4) {
     margin: 8px 0 2px;

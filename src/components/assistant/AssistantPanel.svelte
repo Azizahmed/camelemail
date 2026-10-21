@@ -300,7 +300,13 @@
   .md :global(ul),
   .md :global(ol) {
     margin: 4px 0 8px;
-    padding-left: 20px;
+    padding-inline-start: 20px;
+    padding-inline-end: 0;
+  }
+  /* An item in the other language keeps its bullet beside its text. */
+  .md :global(:is(ul, ol):dir(ltr) > li:dir(rtl)),
+  .md :global(:is(ul, ol):dir(rtl) > li:dir(ltr)) {
+    list-style-position: inside;
   }
   .md :global(li) {
     margin: 3px 0;

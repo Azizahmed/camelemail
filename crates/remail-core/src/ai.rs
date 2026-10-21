@@ -812,9 +812,10 @@ pub fn base_system(user: &EmailAddress, extra: &str) -> String {
 
 pub fn summarize_prompt() -> &'static str {
     "Summarize the email conversation for the user. Start with a one-sentence TL;DR in bold. Then give up to five short \
-     bullet points with the key facts, decisions, dates, amounts and open questions. Finish with a line 'Action items:' \
-     followed by bullets for what the user needs to do, or 'No action needed.' if nothing. Write in the language of the \
-     emails. Use Markdown. No preamble."
+     bullet points with the key facts, decisions, dates, amounts and open questions. Finish with a line naming the \
+     action items, followed by bullets for what the user needs to do, or a line saying no action is needed. Write all of \
+     it, that line too, in the language of the emails (for Arabic emails: 'المطلوب:' and 'لا يلزم أي إجراء.'; in English: \
+     'Action items:' and 'No action needed.'). Use Markdown. No preamble."
 }
 
 pub fn reply_prompt() -> &'static str {

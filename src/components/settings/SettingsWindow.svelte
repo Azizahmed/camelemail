@@ -1,15 +1,16 @@
 <script lang="ts">
+  import Select from "../Select.svelte";
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import {
     Users, SlidersHorizontal, PenLine, FileText, Clock, Info, Plus, Trash2, ChevronRight,
-    Bold, Italic, Underline, Link as LinkIcon, Code, Check, X, RotateCcw, Sparkles, Plug, Eraser, CalendarDays, Keyboard,
+    Bold, Italic, Underline, Link as LinkIcon, Code, Check, X, RotateCcw, Plug, Eraser, CalendarDays, Keyboard, ShieldCheck,
   } from "@lucide/svelte";
   import { api } from "../../lib/api";
   import { directEditor } from "../../lib/bidi";
   import { applyTheme, confirmDialog, toast, toastError } from "../../lib/ui.svelte";
-  import { BUCKET_NAMES, type Account, type AppSettings, type CleanKind, type SenderRule, type Signature, type Template } from "../../lib/types";
+  import { BUCKET_NAMES, type Account, type AppSettings, type CleanKind, type ProviderAccess, type SenderRule, type Signature, type Template } from "../../lib/types";
   import AccountSetup from "../AccountSetup.svelte";
   import AiSettings from "./AiSettings.svelte";
   import CalendarSettings from "./CalendarSettings.svelte";
@@ -26,18 +27,35 @@
     { id: "general", label: "General", icon: SlidersHorizontal },
     { id: "autoclean", label: "Auto-clean", icon: Eraser },
     { id: "calendar", label: "Calendar", icon: CalendarDays },
-    { id: "ai", label: "AI Assistant", icon: Sparkles },
     { id: "connections", label: "Connections", icon: Plug },
     { id: "signatures", label: "Signatures", icon: PenLine },
     { id: "templates", label: "Templates", icon: FileText },
     { id: "snooze", label: "Snooze", icon: Clock },
     { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
+    { id: "admin", label: "Admin", icon: ShieldCheck },
     { id: "about", label: "About", icon: Info },
   ] as const;
   type SectionId = (typeof SECTIONS)[number]["id"];
   const isSection = (s: unknown): s is SectionId => SECTIONS.some((x) => x.id === s);
+  /** Older links ("ai") open where that setting lives now. */
+  const sectionFor = (s: unknown): SectionId | null => (s === "ai" ? "admin" : isSection(s) ? s : null);
 
-  let section = $state<SectionId>(isSection((() => initialSection)()) ? ((() => initialSection)() as SectionId) : "accounts");
+  const PROVIDERS: { key: keyof ProviderAccess; label: string; desc: string }[] = [
+    { key: "gmail", label: "Gmail", desc: "Gmail and Google Workspace, with an app password." },
+    { key: "outlook", label: "Outlook and Microsoft 365", desc: "Outlook.com, Hotmail, Live, MSN and Microsoft 365, signed in with Microsoft. Their calendars come along." },
+    { key: "other", label: "Other providers", desc: "iCloud, Yahoo, Fastmail, Zoho and any other IMAP/SMTP server." },
+  ];
+
+  function setProvider(key: keyof ProviderAccess, on: boolean) {
+    const next = { ...settings!.providers, [key]: on };
+    if (!next.gmail && !next.outlook && !next.other) {
+      toast("Keep at least one provider on, or no account can be added", { kind: "error" });
+      return;
+    }
+    void update({ providers: next });
+  }
+
+  let section = $state<SectionId>(sectionFor((() => initialSection)()) ?? "accounts");
   let settings = $state<AppSettings | null>(null);
   let accounts = $state<Account[]>([]);
   let info = $state<{ version: string; dataDir: string } | null>(null);
@@ -49,7 +67,8 @@
     // Closing before a listener is in place must still remove it.
     const keep = (u: () => void) => (disposed ? u() : un.push(u));
     listen<string>("settings-section", (e) => {
-      if (isSection(e.payload)) section = e.payload;
+      const s = sectionFor(e.payload);
+      if (s) section = s;
     }).then(keep);
     // Changes made elsewhere (e.g. the layout toggle in the main window); our own saves answer with the newest state.
     listen<AppSettings>("settings-changed", (e) => {
@@ -536,21 +555,6 @@
           <button class="btn add-btn" onclick={() => (showAdd = true)}><Plus size={15} /> Add account</button>
         {/if}
 
-        {#if settings}
-          <div class="group-title">Microsoft sign-in</div>
-          {@render row("App (client) ID", "Outlook.com, Hotmail and Microsoft 365 accounts sign in through a Microsoft Entra app registration. Leave empty to use the one Remail was built with.", msCtl)}
-          {#snippet msCtl()}
-            <input
-              class="input narrow"
-              aria-label="Microsoft app (client) ID"
-              placeholder="00000000-0000-0000-0000-000000000000"
-              spellcheck="false"
-              value={settings!.microsoftClientId}
-              onchange={(e) => update({ microsoftClientId: e.currentTarget.value.trim() })}
-            />
-          {/snippet}
-        {/if}
-
       {:else if section === "general" && settings}
         <h1>General</h1>
         <div class="group-title">Appearance</div>
@@ -595,9 +599,7 @@
         <div class="group-title">Sending</div>
         {@render row("Undo send delay", "How long you can take back a sent email.", undoCtl)}
         {#snippet undoCtl()}
-          <select class="input sel" aria-label="Undo send delay" value={settings!.undoSendSeconds} onchange={(e) => update({ undoSendSeconds: Number(e.currentTarget.value) })}>
-            <option value={0}>Off</option><option value={5}>5 seconds</option><option value={10}>10 seconds</option><option value={30}>30 seconds</option>
-          </select>
+          <Select width={160} label="Undo send delay" value={settings!.undoSendSeconds} options={[{ value: 0, label: "Off" }, { value: 5, label: "5 seconds" }, { value: 10, label: "10 seconds" }, { value: 30, label: "30 seconds" }]} onchange={(v) => update({ undoSendSeconds: v })} />
         {/snippet}
         {@render row("Confirm before sending", null, confirmCtl)}
         {#snippet confirmCtl()}<Toggle label="Confirm before sending" checked={settings!.confirmBeforeSend} onchange={(v) => update({ confirmBeforeSend: v })} />{/snippet}
@@ -613,12 +615,18 @@
         <div class="group-title">Reading</div>
         {@render row("After archiving or deleting", "What to show next when the open email leaves the list.", afterCtl)}
         {#snippet afterCtl()}
-          <select class="input sel" aria-label="After archiving or deleting" value={settings!.afterRemove} onchange={(e) => update({ afterRemove: e.currentTarget.value as AppSettings["afterRemove"] })}>
-            <option value="nextUnread">Next unread email</option>
-            <option value="next">Next email</option>
-            <option value="previous">Previous email</option>
-            <option value="list">Back to the list</option>
-          </select>
+          <Select
+            width={180}
+            label="After archiving or deleting"
+            value={settings!.afterRemove}
+            options={[
+              { value: "nextUnread", label: "Next unread email" },
+              { value: "next", label: "Next email" },
+              { value: "previous", label: "Previous email" },
+              { value: "list", label: "Back to the list" },
+            ] as { value: AppSettings["afterRemove"]; label: string }[]}
+            onchange={(v) => update({ afterRemove: v })}
+          />
         {/snippet}
         {@render row("Mark as read when opened", null, readCtl)}
         {#snippet readCtl()}<Toggle label="Mark as read when opened" checked={settings!.markReadOnOpen} onchange={(v) => update({ markReadOnOpen: v })} />{/snippet}
@@ -636,9 +644,7 @@
         {#snippet trayCtl()}<Toggle label="Keep running in the tray" checked={settings!.closeToTray} onchange={(v) => update({ closeToTray: v })} />{/snippet}
         {@render row("Sync interval", "How often Remail checks for new mail.", syncCtl)}
         {#snippet syncCtl()}
-          <select class="input sel" aria-label="Sync interval" value={settings!.syncIntervalSeconds} onchange={(e) => update({ syncIntervalSeconds: Number(e.currentTarget.value) })}>
-            <option value={15}>15 seconds</option><option value={30}>30 seconds</option><option value={60}>1 minute</option><option value={300}>5 minutes</option>
-          </select>
+          <Select width={160} label="Sync interval" value={settings!.syncIntervalSeconds} options={[{ value: 15, label: "15 seconds" }, { value: 30, label: "30 seconds" }, { value: 60, label: "1 minute" }, { value: 300, label: "5 minutes" }]} onchange={(v) => update({ syncIntervalSeconds: v })} />
         {/snippet}
 
       {:else if section === "autoclean" && settings}
@@ -651,9 +657,7 @@
         {#each CLEAN_KINDS as k (k.kind)}
           {@render row(k.label, k.desc, delayCtl)}
           {#snippet delayCtl()}
-            <select class="input sel" aria-label={k.label} disabled={!settings!.autoClean.enabled} value={delayOf(k.kind)} onchange={(e) => setDelay(k.kind, Number(e.currentTarget.value))}>
-              {#each CLEAN_DELAYS as [m, l] (m)}<option value={m}>{l}</option>{/each}
-            </select>
+            <Select width={170} label={k.label} disabled={!settings!.autoClean.enabled} value={delayOf(k.kind)} options={CLEAN_DELAYS.map(([m, l]) => ({ value: m, label: l }))} onchange={(v) => setDelay(k.kind, v)} />
           {/snippet}
         {/each}
 
@@ -675,7 +679,32 @@
       {:else if section === "calendar" && settings}
         <CalendarSettings {settings} {update} />
 
-      {:else if section === "ai"}
+      {:else if section === "admin" && settings}
+        <h1>Admin</h1>
+        <p class="intro">Technical setup, done once. Everyday use doesn't need anything here.</p>
+
+        <div class="group-title">Email providers</div>
+        <p class="note">People can only add accounts from the providers turned on here.</p>
+        {#each PROVIDERS as p (p.key)}
+          {@render row(p.label, p.desc, provCtl)}
+          {#snippet provCtl()}
+            <Toggle label={p.label} checked={settings!.providers[p.key]} onchange={(v) => setProvider(p.key, v)} />
+          {/snippet}
+        {/each}
+        {#if settings.providers.outlook}
+          {@render row("Microsoft app (client) ID", "Outlook and Microsoft 365 sign in through a Microsoft Entra app registration. Leave empty to use the one this build includes.", msCtl)}
+          {#snippet msCtl()}
+            <input
+              class="input narrow"
+              aria-label="Microsoft app (client) ID"
+              placeholder="00000000-0000-0000-0000-000000000000"
+              spellcheck="false"
+              value={settings!.microsoftClientId}
+              onchange={(e) => update({ microsoftClientId: e.currentTarget.value.trim() })}
+            />
+          {/snippet}
+        {/if}
+
         <AiSettings />
 
       {:else if section === "connections"}
@@ -688,10 +717,7 @@
             <div class="field"><label for="sg-name">Name</label><input id="sg-name" class="input" dir="auto" bind:value={sigEdit.name} placeholder="Work" /></div>
             <div class="field">
               <label for="sg-acct">Account</label>
-              <select id="sg-acct" class="input" value={sigEdit.accountId ?? ""} onchange={(e) => (sigEdit!.accountId = e.currentTarget.value || null)}>
-                <option value="">All accounts</option>
-                {#each accounts as a}<option value={a.id}>{a.email}</option>{/each}
-              </select>
+              <Select id="sg-acct" value={sigEdit.accountId ?? ""} options={[{ value: "", label: "All accounts" }, ...accounts.map((a) => ({ value: a.id, label: a.email }))]} onchange={(v) => (sigEdit!.accountId = v || null)} />
             </div>
             <div class="field"><span class="lbl">Signature</span>{@render editor()}</div>
             <label class="check"><input type="checkbox" bind:checked={sigEdit.isDefault} /> Use as default</label>
@@ -748,9 +774,7 @@
         <p class="intro">Snooze sends an email away and brings it back to your inbox at a better time. Choose your times.</p>
         {@render row("Later", "Snooze for a few hours from now.", laterCtl)}
         {#snippet laterCtl()}
-          <select class="input sel" aria-label="Later" value={settings!.snoozeLaterMinutes} onchange={(e) => update({ snoozeLaterMinutes: Number(e.currentTarget.value) })}>
-            {#each [1, 2, 3, 4, 8] as h}<option value={h * 60}>{h} {h === 1 ? "hour" : "hours"}</option>{/each}
-          </select>
+          <Select width={130} label="Later" value={settings!.snoozeLaterMinutes} options={[1, 2, 3, 4, 8].map((h) => ({ value: h * 60, label: `${h} ${h === 1 ? "hour" : "hours"}` }))} onchange={(v) => update({ snoozeLaterMinutes: v })} />
         {/snippet}
         {#each SNOOZE_TIMES as t (t.key)}
           {@render row(t.label, t.desc, timeCtl)}
@@ -883,10 +907,6 @@
     flex: none;
     display: flex;
     align-items: center;
-  }
-  .sel {
-    width: auto;
-    min-width: 130px;
   }
   .time {
     width: 110px;

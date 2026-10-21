@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Select from "../Select.svelte";
   import { Sparkles, Trash2, X } from "@lucide/svelte";
   import { errorText } from "../../lib/api";
   import {
@@ -224,9 +225,7 @@
 
     <div class="grid">
       <label for="ev-cal">Calendar</label>
-      <select id="ev-cal" class="input" bind:value={calendarId}>
-        {#each writable() as c (c.id)}<option value={c.id}>{c.name} — {c.accountName}</option>{/each}
-      </select>
+      <Select id="ev-cal" bind:value={calendarId} options={writable().map((c) => ({ value: c.id, label: `${c.name} — ${c.accountName}` }))} />
 
       <span class="lbl">All-day</span>
       <label class="switch"><input type="checkbox" checked={allDay} onchange={(e) => toggleAllDay(e.currentTarget.checked)} /> All-day event</label>
@@ -244,24 +243,31 @@
       </div>
 
       <label for="ev-rep">Repeat</label>
-      <select id="ev-rep" class="input" bind:value={repeat} onchange={() => { datesTouched = true; repeatTouched = true; }}>
-        {#each REPEATS as [v, l] (v)}<option value={v}>{l}</option>{/each}
-        {#if repeat === "custom"}<option value="custom">Custom ({rrule})</option>{/if}
-      </select>
+      <Select
+        id="ev-rep"
+        bind:value={repeat}
+        options={[...REPEATS.map(([v, l]) => ({ value: v, label: l })), ...(repeat === "custom" ? [{ value: "custom", label: `Custom (${rrule})` }] : [])]}
+        onchange={() => { datesTouched = true; repeatTouched = true; }}
+      />
 
       <label for="ev-alarm">Alert</label>
-      <select id="ev-alarm" class="input" bind:value={alarm} onchange={() => (alarmTouched = true)}>
-        <option value="-1">None</option>
-        <option value="0">At time of event</option>
-        <option value="5">5 minutes before</option>
-        <option value="10">10 minutes before</option>
-        <option value="15">15 minutes before</option>
-        <option value="30">30 minutes before</option>
-        <option value="60">1 hour before</option>
-        <option value="120">2 hours before</option>
-        <option value="1440">1 day before</option>
-        <option value="2880">2 days before</option>
-      </select>
+      <Select
+        id="ev-alarm"
+        bind:value={alarm}
+        options={[
+          { value: "-1", label: "None" },
+          { value: "0", label: "At time of event" },
+          { value: "5", label: "5 minutes before" },
+          { value: "10", label: "10 minutes before" },
+          { value: "15", label: "15 minutes before" },
+          { value: "30", label: "30 minutes before" },
+          { value: "60", label: "1 hour before" },
+          { value: "120", label: "2 hours before" },
+          { value: "1440", label: "1 day before" },
+          { value: "2880", label: "2 days before" },
+        ]}
+        onchange={() => (alarmTouched = true)}
+      />
 
       <label for="ev-loc">Location</label>
       <input id="ev-loc" class="input" bind:value={location} dir="auto" placeholder="Add location" />

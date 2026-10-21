@@ -1,7 +1,7 @@
 {
   "name": "remail",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "description": "Remail - a fast, private desktop email client written in Rust",
   "scripts": {

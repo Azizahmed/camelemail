@@ -83,6 +83,44 @@ pub struct AppSettings {
     /// App (client) ID of the Microsoft Entra app used for "Sign in with
     /// Microsoft". Empty: the one Remail was built with, if any.
     pub microsoft_client_id: String,
+    /// Admin: which email providers accounts may be added for.
+    pub providers: ProviderAccess,
+}
+
+/// Admin setting: the email providers people may connect.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ProviderAccess {
+    pub gmail: bool,
+    /// Outlook.com, Hotmail, Live, MSN and Microsoft 365.
+    pub outlook: bool,
+    /// Every other IMAP/SMTP provider or server.
+    pub other: bool,
+}
+
+impl Default for ProviderAccess {
+    fn default() -> Self {
+        Self { gmail: true, outlook: true, other: true }
+    }
+}
+
+impl ProviderAccess {
+    pub fn allows(&self, kind: crate::presets::ProviderKind) -> bool {
+        use crate::presets::ProviderKind::*;
+        match kind {
+            Gmail => self.gmail,
+            Outlook => self.outlook,
+            Other => self.other,
+        }
+    }
+}
+
+fn not_allowed(kind: crate::presets::ProviderKind) -> anyhow::Error {
+    let what = match kind {
+        crate::presets::ProviderKind::Other => "Accounts from other providers".to_string(),
+        k => format!("{} accounts", k.name()),
+    };
+    anyhow::anyhow!("{what} aren't allowed in Remail. They can be turned on in Settings → Admin.")
 }
 
 /// Remove read mail of chosen kinds from the Inbox automatically.
@@ -140,6 +178,7 @@ impl Default for AppSettings {
             auto_clean: AutoClean::default(),
             calendar: Default::default(),
             microsoft_client_id: String::new(),
+            providers: ProviderAccess::default(),
         }
     }
 }
@@ -511,6 +550,10 @@ impl Engine {
         if self.inner.store.accounts()?.iter().any(|x| x.email.eq_ignore_ascii_case(a.email.trim())) {
             bail!("This account is already added");
         }
+        let kind = crate::presets::provider_kind(&a.email, &a.imap.host);
+        if !self.settings().providers.allows(kind) {
+            return Err(not_allowed(kind));
+        }
         let gmail = self.verify_account(&a).await?;
         let account = self.inner.store.insert_account(&a, gmail, "password")?;
         self.inner.secrets.set(&account.id, &a.password)?;
@@ -647,6 +690,9 @@ impl Engine {
     /// signing in at Microsoft. Reading must work; if sending doesn't (a
     /// Microsoft 365 admin can turn SMTP off), the account is added with a warning.
     pub async fn add_microsoft_account(&self, open: impl Fn(&str) -> Result<()>, req: OAuthAccountRequest) -> Result<OAuthAccountAdded> {
+        if !self.settings().providers.outlook {
+            return Err(not_allowed(crate::presets::ProviderKind::Outlook));
+        }
         let (tokens, client_id, cancel) = self.microsoft_sign_in(open, req.email.as_deref()).await?;
         let email = tokens
             .identity

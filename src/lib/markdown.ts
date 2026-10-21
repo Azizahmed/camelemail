@@ -2,6 +2,7 @@
 // first; only http(s)/mailto links survive).
 
 import { api } from "./api";
+import { textDirection } from "./bidi";
 
 // NUL marks placeholders in `inline`, so input can't contain it.
 const esc = (s: string) => s.replace(/\u0000/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -65,7 +66,9 @@ export function renderMarkdown(src: string): string {
       const kind = ul ? "ul" : "ol";
       if (list !== kind) {
         closeList();
-        out.push(`<${kind} dir="auto">`);
+        // Not dir="auto": that skips the items (they carry their own dir), so an
+        // Arabic list would come out left-to-right with its bullets outside on the right.
+        out.push(`<${kind} dir="${textDirection((ul ?? ol)![1]) ?? "auto"}">`);
         list = kind;
       }
       out.push(`<li dir="auto">${inline((ul ?? ol)![1])}</li>`);
