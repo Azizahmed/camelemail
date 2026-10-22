@@ -51,7 +51,7 @@
 
   $effect(() => {
     // Follows the subject as it is typed.
-    const title = subject.trim() ? `${subject.trim()} - Remail` : "New Message - Remail";
+    const title = subject.trim() ? `${subject.trim()} - Camel Mail` : "New Message - Camel Mail";
     if (title === shownTitle) return;
     shownTitle = title;
     void win.setTitle(title);

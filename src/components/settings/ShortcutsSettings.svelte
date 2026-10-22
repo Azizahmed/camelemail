@@ -123,7 +123,7 @@
     stop();
     const r = await confirmDialog({
       title: "Reset all shortcuts?",
-      message: "Every shortcut goes back to the keys Remail came with.",
+      message: "Every shortcut goes back to the keys Camel Mail came with.",
       confirmLabel: "Reset all",
       danger: true,
     });

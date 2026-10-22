@@ -182,7 +182,7 @@
     <button class="btn primary" disabled={!dirty || saving} onclick={() => save()}>Save</button>
   </div>
   <p class="note">
-    Remail talks to the provider directly from this computer. Your API key is stored in the system keyring. In chat, the assistant
+    Camel Mail talks to the provider directly from this computer. Your API key is stored in the system keyring. In chat, the assistant
     asks before it sends, moves or snoozes email.
   </p>
 {/if}

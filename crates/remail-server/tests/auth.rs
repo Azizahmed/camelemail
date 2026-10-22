@@ -85,7 +85,7 @@ async fn full_flow() {
     let setup = s.post("/me/2fa/setup", json!({}), Some(&access)).await;
     assert_eq!(setup.status, 200, "{:?}", setup.body);
     let secret = setup.body["secret"].as_str().unwrap().to_string();
-    assert!(setup.body["otpauthUrl"].as_str().unwrap().starts_with("otpauth://totp/Remail:sara@example.com?"));
+    assert!(setup.body["otpauthUrl"].as_str().unwrap().starts_with("otpauth://totp/Camel%20Mail:sara@example.com?"));
     let r = s.post("/me/2fa/enable", json!({"code": "000000"}), Some(&access)).await;
     assert_eq!(r.code(), "invalid_code");
     let r = s.post("/me/2fa/enable", json!({"code": totp_now(&secret)}), Some(&access)).await;

@@ -159,8 +159,8 @@
   <!-- Drag the edge to make the sidebar wider or narrower. -->
   <div class="resizer" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" onpointerdown={startResize}></div>
   <div class="brand">
-    <img class="logo" src="/brand/remail-mark.png" alt="" />
-    <span class="word">Remail</span>
+    <img class="logo" src="/brand/camel-mail-icon.png" alt="" />
+    <span class="word">Camel Mail</span>
     <button class="icon-btn dock" title={mail.sidebarDocked ? "Undock sidebar" : "Keep sidebar open"} onclick={() => setDocked(!mail.sidebarDocked)}>
       {#if mail.sidebarDocked}<PanelLeftClose size={15} />{:else}<PanelLeftOpen size={15} />{/if}
     </button>

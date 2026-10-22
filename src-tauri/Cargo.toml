@@ -1,6 +1,6 @@
 [package]
 name = "remail"
-description = "Remail desktop email client"
+description = "Camel Mail desktop email client"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

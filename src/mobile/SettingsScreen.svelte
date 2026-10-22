@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Settings home on the phone: the Remail account at the top, then one card
+  // Settings home on the phone: the Camel Mail account at the top, then one card
   // per settings page. The desktop-only sections (Connections, Shortcuts) are
   // left out.
   import {

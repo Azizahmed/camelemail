@@ -287,10 +287,10 @@
 
 {#if s}
   <h1>Connections</h1>
-  <p class="intro">Remail speaks the Model Context Protocol (MCP): AI agents in other apps can work with your email, and Remail's assistant can use tools from other apps.</p>
+  <p class="intro">Camel Mail speaks the Model Context Protocol (MCP): AI agents in other apps can work with your email, and Camel Mail's assistant can use tools from other apps.</p>
 
   <!-- ------------------------------------------------------------ server -->
-  <div class="group-title"><Server size={12} /> Let AI agents use Remail</div>
+  <div class="group-title"><Server size={12} /> Let AI agents use Camel Mail</div>
   <div class="row">
     <div class="row-text">
       <div class="row-label">MCP server</div>
@@ -329,9 +329,9 @@
       <button class="btn copy" onclick={() => copy(snippets[snippet])}><Copy size={13} /> Copy</button>
     </div>
     <p class="hint">
-      {#if snippet === "claude"}Run this in a terminal. Claude Code then has Remail's tools in every project.
+      {#if snippet === "claude"}Run this in a terminal. Claude Code then has Camel Mail's tools in every project.
       {:else if snippet === "http"}Add this to the app's MCP configuration (for Claude Desktop, use the command config instead).
-      {:else}The command starts a small bridge that forwards to Remail and opens Remail in the tray if it isn't running.{/if}
+      {:else}The command starts a small bridge that forwards to Camel Mail and opens Camel Mail in the tray if it isn't running.{/if}
     </p>
     <div class="perm">
       <span>Port</span>
@@ -340,7 +340,7 @@
   {/if}
 
   <!-- ---------------------------------------------------------- clients -->
-  <div class="group-title"><Plug size={12} /> Tools for Remail's assistant</div>
+  <div class="group-title"><Plug size={12} /> Tools for Camel Mail's assistant</div>
   <p class="desc">Connect MCP servers (calendar, notes, tasks, CRM…) and the assistant can use their tools while it works on your email.</p>
 
   <div class="list">

@@ -300,7 +300,7 @@ impl Pending {
     }
 
     /// Wait for the browser to come back (up to `timeout`) with a code, for
-    /// an exchange done elsewhere (the Remail server holds Google's client secret).
+    /// an exchange done elsewhere (the Camel Mail server holds Google's client secret).
     pub async fn authorized(self, timeout: Duration) -> Result<Authorized> {
         let code = tokio::time::timeout(timeout, self.wait_for_code())
             .await
@@ -362,8 +362,8 @@ async fn serve_redirect(mut sock: tokio::net::TcpStream, state: &str) -> Option<
     let request = String::from_utf8_lossy(&buf[..n]).into_owned();
     let outcome = parse_redirect(&request, state);
     let (status, body) = match &outcome {
-        Some(Ok(_)) => ("200 OK", page("You're signed in", "You can close this tab and go back to Remail.")),
-        Some(Err(e)) => ("400 Bad Request", page("Sign-in didn't work", &format!("{e}. You can close this tab and try again in Remail."))),
+        Some(Ok(_)) => ("200 OK", page("You're signed in", "You can close this tab and go back to Camel Mail.")),
+        Some(Err(e)) => ("400 Bad Request", page("Sign-in didn't work", &format!("{e}. You can close this tab and try again in Camel Mail."))),
         None => ("404 Not Found", String::new()),
     };
     let reply = format!(
@@ -397,7 +397,7 @@ fn parse_redirect(request: &str, state: &str) -> Option<Result<String>> {
 fn page(title: &str, text: &str) -> String {
     let esc = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
     format!(
-        "<!doctype html><meta charset=utf-8><title>Remail</title><body style=\"font:15px system-ui,sans-serif;margin:15vh auto;max-width:420px;text-align:center;color:#222\"><h2 style=\"color:#ff7c19\">{}</h2><p>{}</p></body>",
+        "<!doctype html><meta charset=utf-8><title>Camel Mail</title><body style=\"font:15px system-ui,sans-serif;margin:15vh auto;max-width:420px;text-align:center;color:#222\"><h2 style=\"color:#ff7c19\">{}</h2><p>{}</p></body>",
         esc(title),
         esc(text)
     )
@@ -431,7 +431,7 @@ pub async fn refresh(http: &reqwest::Client, provider: &Provider, client_id: &st
     token_request(http, provider, &form).await
 }
 
-/// Tokens from a code exchange the Remail server did (Google with a client secret).
+/// Tokens from a code exchange the Camel Mail server did (Google with a client secret).
 pub fn tokens_from_server(t: remail_proto::api::GoogleTokens) -> Tokens {
     Tokens {
         expires_at: now_ms() + t.expires_in.max(60) * 1000,

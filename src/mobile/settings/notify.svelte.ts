@@ -1,4 +1,4 @@
-// Whether Android lets Remail show notifications (Android 13+ asks the user).
+// Whether Android lets Camel Mail show notifications (Android 13+ asks the user).
 // Shared by the settings home (its "Permission needed" dot) and the
 // Notifications page, and checked again whenever the app comes back to the
 // front, since the user may have changed it in Android's own settings.

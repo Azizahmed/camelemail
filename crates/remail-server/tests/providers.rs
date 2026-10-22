@@ -30,7 +30,7 @@ async fn allow_list_is_enforced_server_side() {
     let cfg = s.get("/org/config", Some(&t)).await;
     assert_eq!(cfg.status, 200);
     assert_eq!(cfg.body["version"], 0);
-    assert_eq!(cfg.body["config"]["name"], "Remail");
+    assert_eq!(cfg.body["config"]["name"], "Camel Mail");
     assert_eq!(cfg.body["config"]["providers"]["imap"], true);
     let p = s.get("/providers", Some(&t)).await;
     let list = p.body.as_array().unwrap();

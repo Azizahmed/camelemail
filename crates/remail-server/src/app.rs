@@ -132,7 +132,7 @@ pub fn router(state: AppState) -> Router {
         .nest("/v1", v1)
         .merge(crate::web::routes())
         .route("/health", axum::routing::get(|| async { "ok" }))
-        .route("/", axum::routing::get(|| async { "Remail server. Sign in from the Remail app.\n" }))
+        .route("/", axum::routing::get(|| async { "Camel Mail server. Sign in from the Camel Mail app.\n" }))
         .fallback(|| async { AppError::not_found() })
         .method_not_allowed_fallback(|| async { AppError::new(ErrorCode::BadRequest, "Method not allowed.") })
         .layer(DefaultBodyLimit::max(BODY_LIMIT))

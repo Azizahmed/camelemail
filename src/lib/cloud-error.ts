@@ -1,4 +1,4 @@
-// Errors from the Remail server reach the UI as rejected invokes whose text is
+// Errors from the Camel Mail server reach the UI as rejected invokes whose text is
 // "cloud:<code>:<message>" (docs/platform/client-contract.md). The code is a
 // proto `ErrorCode` wire name; the UI shows t("err.<code>"), not the message.
 

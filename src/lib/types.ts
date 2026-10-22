@@ -447,7 +447,7 @@ export interface ImportedServer {
 
 
 // ---------------------------------------------------------------------------
-// Remail account (docs/platform/client-contract.md, crates/remail-proto)
+// Camel Mail account (docs/platform/client-contract.md, crates/remail-proto)
 // ---------------------------------------------------------------------------
 
 export interface AiPolicy {
@@ -467,7 +467,7 @@ export interface Policies {
   mcp: boolean;
 }
 
-/** The signed-in Remail user (proto `api::Me`). */
+/** The signed-in Camel Mail user (proto `api::Me`). */
 export interface Me {
   id: string;
   name: string;

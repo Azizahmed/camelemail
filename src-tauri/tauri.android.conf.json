@@ -3,7 +3,7 @@
   "identifier": "app.remail.mobile",
   "bundle": {
     "shortDescription": "Fast, private email",
-    "longDescription": "Remail is an email and calendar app for Gmail, Outlook and any IMAP account, with a unified inbox, snooze, send later, undo send and AI assistance.",
+    "longDescription": "Camel Mail is an email and calendar app for Gmail, Outlook and any IMAP account, with a unified inbox, snooze, send later, undo send and AI assistance.",
     "android": {
       "minSdkVersion": 26
     }

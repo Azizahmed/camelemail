@@ -57,7 +57,7 @@
 
 <div class="m-scrim" onclick={() => back()} role="presentation"></div>
 <aside class="drawer" aria-label={t("m.drawer.label")}>
-  <h2>Remail</h2>
+  <h2>Camel Mail</h2>
 
   {#if mail.accounts.length > 1}
     <div class="accounts" role="tablist" aria-label={t("m.drawer.mailboxes")}>

@@ -8,7 +8,7 @@ use crate::crypto::{random_bytes, sha256};
 
 pub const STEP: u64 = 30;
 pub const BACKUP_CODES: usize = 10;
-const ISSUER: &str = "Remail";
+const ISSUER: &str = "Camel%20Mail"; // "Camel Mail", URL-encoded for the otpauth URL
 /// No 0/o, 1/l/i: codes get typed from paper.
 const BACKUP_ALPHABET: &[u8] = b"abcdefghjkmnpqrstuvwxyz23456789";
 
@@ -115,7 +115,7 @@ mod tests {
         assert_eq!(verify(&s, &code, now + 2 * STEP, None), None, "two steps late is not");
         assert_eq!(verify(&s, &code, now, Some(step)), None, "no replay");
         assert_eq!(verify(&s, "12345", now, None), None);
-        assert!(otpauth_url(&s, "a b@x.com").starts_with("otpauth://totp/Remail:a%20b@x.com?secret="));
+        assert!(otpauth_url(&s, "a b@x.com").starts_with("otpauth://totp/Camel%20Mail:a%20b@x.com?secret="));
     }
 
     #[test]

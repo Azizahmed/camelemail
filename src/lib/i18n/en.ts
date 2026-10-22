@@ -22,24 +22,24 @@ export const en = {
   "lang.label": "Language",
 
   // ---- the gate ----
-  "gate.loadError": "Remail couldn't start its background service.",
-  "gate.signInMain": "Sign in to Remail in the main window.",
-  "gate.signedOut.revoked": "This device was signed out of Remail from another device or by your administrator.",
-  "gate.signedOut.expired": "Your Remail session ended. Sign in again to continue.",
+  "gate.loadError": "Camel Mail couldn't start its background service.",
+  "gate.signInMain": "Sign in to Camel Mail in the main window.",
+  "gate.signedOut.revoked": "This device was signed out of Camel Mail from another device or by your administrator.",
+  "gate.signedOut.expired": "Your Camel Mail session ended. Sign in again to continue.",
 
   // ---- welcome ----
-  "welcome.title": "Welcome to Remail",
+  "welcome.title": "Welcome to Camel Mail",
   "welcome.subtitle": "Fast, private email. Your mailboxes and settings follow you to every device you sign in on.",
   "welcome.org": "Sign in to {org}",
   "welcome.create": "Create account",
   "welcome.signIn": "Sign in",
-  "welcome.work": "Using Remail at work?",
+  "welcome.work": "Using Camel Mail at work?",
   "welcome.server": "Server: {server}",
   "welcome.changeServer": "Change",
   "welcome.connecting": "Connecting to {server}…",
-  "welcome.unreachable": "Remail can't reach {server}.",
-  "welcome.update": "This server needs Remail {version} or later. Update Remail to continue.",
-  "welcome.licence": "Your organisation's Remail licence isn't valid at the moment. Contact your administrator.",
+  "welcome.unreachable": "Camel Mail can't reach {server}.",
+  "welcome.update": "This server needs Camel Mail {version} or later. Update Camel Mail to continue.",
+  "welcome.licence": "Your organisation's Camel Mail licence isn't valid at the moment. Contact your administrator.",
   "welcome.invite": "Joining by invitation",
 
   // ---- server ----
@@ -48,7 +48,7 @@ export const en = {
   "server.label": "Server address or organisation code",
   "server.placeholder": "mail.example.com or ACME42",
   "server.submit": "Connect",
-  "server.useDefault": "Use the standard Remail service instead",
+  "server.useDefault": "Use the standard Camel Mail service instead",
   "server.connected": "Connected to {name}",
   "server.required": "Enter a server address or an organisation code.",
 
@@ -69,7 +69,7 @@ export const en = {
   "pw.mismatch": "The passwords don't match.",
 
   // ---- sign up ----
-  "signup.title": "Create your Remail account",
+  "signup.title": "Create your Camel Mail account",
   "signup.body": "One account keeps your mailboxes, signatures and settings the same on all your devices.",
   "signup.passwordHint": "At least 10 characters. A few unrelated words make a strong password.",
   "signup.invite": "Invitation code",
@@ -90,10 +90,10 @@ export const en = {
   "verify.backToSignIn": "Back to sign in",
 
   // ---- sign in ----
-  "signin.title": "Sign in to Remail",
+  "signin.title": "Sign in to Camel Mail",
   "signin.forgot": "Forgot password?",
   "signin.submit": "Sign in",
-  "signin.noAccount": "New to Remail?",
+  "signin.noAccount": "New to Camel Mail?",
   "signin.create": "Create an account",
   "signin.askAdmin": "Forgot your password? Your administrator can reset it.",
 
@@ -111,7 +111,7 @@ export const en = {
   // ---- two-step verification setup ----
   "totp.title": "Set up two-step verification",
   "totp.required": "Your organisation requires two-step verification. Set it up to finish signing in.",
-  "totp.intro": "Each time you sign in on a new device, Remail will also ask for a code from your phone.",
+  "totp.intro": "Each time you sign in on a new device, Camel Mail will also ask for a code from your phone.",
   "totp.scan": "Scan this code with an authenticator app, such as Google Authenticator, Microsoft Authenticator or 1Password.",
   "totp.manual": "Can't scan it? Enter this key in the app:",
   "totp.copyKey": "Copy key",
@@ -127,9 +127,9 @@ export const en = {
 
   // ---- password reset ----
   "reset.title": "Reset your password",
-  "reset.body": "Enter the email address of your Remail account. We'll send it a link to choose a new password.",
+  "reset.body": "Enter the email address of your Camel Mail account. We'll send it a link to choose a new password.",
   "reset.submit": "Send reset link",
-  "reset.sent": "If there's a Remail account for {email}, a reset link is on its way. It works for an hour.",
+  "reset.sent": "If there's a Camel Mail account for {email}, a reset link is on its way. It works for an hour.",
   "reset.haveLink": "I have a reset link",
   "reset.newTitle": "Choose a new password",
   "reset.tokenLabel": "Reset link or code",
@@ -141,8 +141,8 @@ export const en = {
   "reset.done": "Password changed. Sign in with your new password.",
 
   // ---- moving an existing install ----
-  "migrate.title": "Move this computer's setup to your Remail account?",
-  "migrate.body": "Remail now keeps your mailboxes and settings in your account, so they're ready on every device you sign in on.",
+  "migrate.title": "Move this computer's setup to your Camel Mail account?",
+  "migrate.body": "Camel Mail now keeps your mailboxes and settings in your account, so they're ready on every device you sign in on.",
   "migrate.local": "Mailboxes on this computer: {n}",
   "migrate.server": "Mailboxes already in your account: {n}",
   "migrate.upload": "Move this computer's setup",
@@ -159,11 +159,11 @@ export const en = {
   "sync.title": "Setting up your mailboxes",
   "sync.body": "Bringing your mailboxes and settings to this device. This only takes a moment.",
   "sync.progress": "{done} of {total}",
-  "sync.offline": "Remail can't reach its server right now. It will keep trying.",
+  "sync.offline": "Camel Mail can't reach its server right now. It will keep trying.",
 
   // ---- first mailbox ----
   "first.title": "Connect your first mailbox",
-  "first.body": "Add the email account you want to use in Remail. You can add more later in Settings.",
+  "first.body": "Add the email account you want to use in Camel Mail. You can add more later in Settings.",
   "first.calendarOnly": "Only need a calendar? Open the calendar",
   "first.signedInAs": "Signed in as {email}",
 
@@ -213,12 +213,12 @@ export const en = {
   "setup.otherServer": "Another mail server",
   "setup.presetDomain": "Use an address that ends in {domain}.",
   "setup.noServers": "Your organisation hasn't listed any mail servers yet. Ask your administrator.",
-  "setup.privacy": "Your password is kept in this device's keychain and, encrypted, in your Remail account so your other devices can connect. Your mail travels directly between this device and your mail server.",
+  "setup.privacy": "Your password is kept in this device's keychain and, encrypted, in your Camel Mail account so your other devices can connect. Your mail travels directly between this device and your mail server.",
 
   // ---- settings ----
   "settings.account": "Account",
   "settings.ai": "AI assistance",
-  "settings.languageDesc": "The language of Remail's menus and screens. Some screens are still in English.",
+  "settings.languageDesc": "The language of Camel Mail's menus and screens. Some screens are still in English.",
 
   // ---- settings: account ----
   "acct.profile": "Profile",
@@ -241,24 +241,24 @@ export const en = {
   "acct.twofaRequired": "Your organisation requires two-step verification, so it can't be turned off.",
   "acct.twofaDisabled": "Two-step verification is off",
   "acct.devices": "Signed-in devices",
-  "acct.devicesDesc": "Devices where your Remail account is signed in.",
+  "acct.devicesDesc": "Devices where your Camel Mail account is signed in.",
   "acct.thisDevice": "This device",
   "acct.lastSeen": "Last active {when}",
   "acct.signOutDevice": "Sign out",
   "acct.signOutDeviceTitle": "Sign out {name}?",
-  "acct.signOutDeviceBody": "{name} is signed out of Remail, and its Remail setup is removed from it the next time it goes online.",
+  "acct.signOutDeviceBody": "{name} is signed out of Camel Mail, and its Camel Mail setup is removed from it the next time it goes online.",
   "acct.deviceSignedOut": "Device signed out",
   "acct.noDevices": "No other devices are signed in.",
-  "acct.signOutTitle": "Sign out of Remail?",
-  "acct.signOutBody": "Your mailboxes, settings and downloaded mail are removed from this device. Everything stays in your Remail account, ready for when you sign in again.",
-  "acct.signOutDesc": "Remove your Remail account and its setup from this device.",
+  "acct.signOutTitle": "Sign out of Camel Mail?",
+  "acct.signOutBody": "Your mailboxes, settings and downloaded mail are removed from this device. Everything stays in your Camel Mail account, ready for when you sign in again.",
+  "acct.signOutDesc": "Remove your Camel Mail account and its setup from this device.",
   "acct.role.owner": "Owner",
   "acct.role.admin": "Administrator",
   "acct.role.user": "Member",
 
   // ---- phone settings (src/mobile) ----
   "mset.title": "Settings",
-  "mset.remailAccount": "Remail account",
+  "mset.remailAccount": "Camel Mail account",
   "mset.synced": "Synced",
   "mset.accountPitch": "Your mailboxes and settings follow you to every device.",
   "mset.mailboxesSynced.one": "1 mailbox synced",
@@ -288,7 +288,7 @@ export const en = {
   "mset.templates": "Templates",
   "mset.snooze": "Snooze",
   "mset.about": "About",
-  "mset.signOutBody": "Your mailboxes, settings and downloaded mail are removed from this phone. Everything stays in your Remail account, ready for when you sign in again.",
+  "mset.signOutBody": "Your mailboxes, settings and downloaded mail are removed from this phone. Everything stays in your Camel Mail account, ready for when you sign in again.",
   "mset.pinsTitle": "Edit pinned labels",
   "mset.pinsIntro": "Choose up to {n} labels for the bar at the bottom of your mail, in the order you want them.",
   "mset.pinned": "On the bottom bar",
@@ -311,9 +311,9 @@ export const en = {
   "mset.action.snooze": "Snooze",
   "mset.action.none": "Nothing",
   "mset.permission": "Permission",
-  "mset.permGranted": "Remail can show notifications on this phone.",
-  "mset.permPrompt": "Remail needs your permission to show notifications.",
-  "mset.permDenied": "Notifications are turned off for Remail. To turn them on, open Android Settings, then Apps › Remail › Notifications.",
+  "mset.permGranted": "Camel Mail can show notifications on this phone.",
+  "mset.permPrompt": "Camel Mail needs your permission to show notifications.",
+  "mset.permDenied": "Notifications are turned off for Camel Mail. To turn them on, open Android Settings, then Apps › Camel Mail › Notifications.",
   "mset.allow": "Allow notifications",
   "mset.alerts": "Alerts",
   "mset.newMail": "New mail",
@@ -321,7 +321,7 @@ export const en = {
   "mset.importantOnly": "Only for Important email",
   "mset.snoozeWake": "Snoozed email returns",
   "mset.snoozeWakeDesc": "Notify me when a snoozed email comes back to the Inbox.",
-  "mset.pushNote": "Remail checks for new mail while it's open or running in the background. Alerts while Remail is fully closed need push from the Remail server, which is coming in a later version.",
+  "mset.pushNote": "Camel Mail checks for new mail while it's open or running in the background. Alerts while Camel Mail is fully closed need push from the Camel Mail server, which is coming in a later version.",
 
   // ---- server errors (proto ErrorCode) ----
   "err.bad_request": "Something in that request wasn't right. Check the details and try again.",
@@ -336,7 +336,7 @@ export const en = {
   "err.account_locked": "This account is locked for a while after too many attempts. Try again later.",
   "err.account_disabled": "This account has been turned off. Contact your administrator.",
   "err.email_not_verified": "Confirm your email address first. Check your inbox for the link.",
-  "err.email_taken": "There's already a Remail account with this email address. Sign in instead.",
+  "err.email_taken": "There's already a Camel Mail account with this email address. Sign in instead.",
   "err.weak_password": "Choose a stronger password: at least 10 characters that are hard to guess.",
   "err.invalid_code": "That code isn't right, or it has expired. Try a new one.",
   "err.invalid_token": "This link or code isn't valid any more. Ask for a new one.",
@@ -345,11 +345,11 @@ export const en = {
   "err.invite_required": "You need an invitation to join this organisation.",
   "err.domain_not_allowed": "Your organisation doesn't allow this email domain.",
   "err.provider_not_allowed": "Your organisation doesn't allow this email provider.",
-  "err.platform_not_allowed": "Your organisation doesn't allow Remail on this kind of device.",
-  "err.licence_expired": "Your organisation's Remail licence has expired. Contact your administrator.",
-  "err.licence_invalid": "Your organisation's Remail licence isn't valid. Contact your administrator.",
-  "err.seat_limit": "Your organisation has no free Remail seats. Contact your administrator.",
-  "err.unavailable": "Remail can't reach its server. Check your connection and try again.",
+  "err.platform_not_allowed": "Your organisation doesn't allow Camel Mail on this kind of device.",
+  "err.licence_expired": "Your organisation's Camel Mail licence has expired. Contact your administrator.",
+  "err.licence_invalid": "Your organisation's Camel Mail licence isn't valid. Contact your administrator.",
+  "err.seat_limit": "Your organisation has no free Camel Mail seats. Contact your administrator.",
+  "err.unavailable": "Camel Mail can't reach its server. Check your connection and try again.",
   "err.internal": "Something went wrong on the server. Try again in a moment.",
 
   // ---- phone app screens (m.*): views, lists, threads, search, sheets, toasts ----
@@ -486,7 +486,7 @@ export const en = {
   "m.sched.editFailed": "Failed to open for editing",
   "m.sched.rescheduled": "Rescheduled for {when}",
   "m.sched.rescheduleFailed": "Failed to reschedule",
-  "m.app.failed": "Remail couldn't start: {error}",
+  "m.app.failed": "Camel Mail couldn't start: {error}",
   "m.toast.undo": "Undo",
   "m.toast.undoHint": "{message} (Z to undo)",
   "m.toast.nothingToUndo": "Nothing to undo",
@@ -574,7 +574,7 @@ export const en = {
   "m.cal.prevMonth": "Previous month",
   "m.cal.nextMonth": "Next month",
   "m.cal.connectTitle": "Connect your calendar",
-  "m.cal.connectBody": "Remail syncs with iCloud, Fastmail, Nextcloud, Zoho, Yahoo and other CalDAV calendars, and Microsoft 365. You can also subscribe to any calendar with its iCal link.",
+  "m.cal.connectBody": "Camel Mail syncs with iCloud, Fastmail, Nextcloud, Zoho, Yahoo and other CalDAV calendars, and Microsoft 365. You can also subscribe to any calendar with its iCal link.",
   "m.cal.connect": "Connect a calendar",
   "m.cal.newEvent": "New event",
   "m.cal.view": "View",

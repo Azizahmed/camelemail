@@ -1,6 +1,6 @@
-# Remail
+# Camel Mail
 
-<img src="assets/brand/remail-app-icon.png" alt="Remail" width="96" align="right">
+<img src="assets/camel-mail/icon-512.png" alt="Camel Mail" width="96" align="right">
 
 A fast, private desktop email client written in Rust. It brings a unified inbox, snooze, send
 later, undo send, one-click unsubscribe and keyboard-first navigation, and talks to your mail
@@ -15,7 +15,7 @@ Your mail and settings stay on your computer.
 - **Platforms:** Linux (`.deb`, AppImage), Windows (installer `.exe`, `.msi`) and macOS (universal `.dmg`).
   The `.deb` is about 11 MB.
 
-![Remail inbox](docs/screenshots/inbox-dark.png)
+![Camel Mail inbox](docs/screenshots/inbox-dark.png)
 
 More: [Smart Inbox](docs/screenshots/smart-inbox.png) · [AI assistant](docs/screenshots/assistant.png) ·
 [AI reply](docs/screenshots/ai-reply.png) · [MCP tool approval](docs/screenshots/mcp-approval.png) ·
@@ -41,19 +41,19 @@ Calendar: [quarter (dark)](docs/screenshots/calendar-quarter.png) · [week](docs
 |---|---|
 | Accounts | Any IMAP/SMTP account (TLS, STARTTLS, or plain for local servers). Presets for Gmail, iCloud, Yahoo, Fastmail, Zoho, AOL and GMX, with app-password help. **Sign in with Microsoft** for Outlook.com, Hotmail, Live, MSN and Microsoft 365 / Office 365 (OAuth 2.0 with PKCE in your browser, then XOAUTH2 for IMAP and SMTP; see below). Passwords and sign-in tokens live in the system keyring. |
 | Unified inbox | All accounts in one list, colour-coded per account, with a per-account "Show in Unified Inbox" switch. |
-| Layout | **Split view** (list + reading pane, resizable) or a full-width list. Toggle with `Ctrl+\`. After archiving or deleting, Remail opens the **next unread email** (or next / previous / back to list, in Settings). |
+| Layout | **Split view** (list + reading pane, resizable) or a full-width list. Toggle with `Ctrl+\`. After archiving or deleting, Camel Mail opens the **next unread email** (or next / previous / back to list, in Settings). |
 | Smart Inbox | The Inbox splits into **Important** and **Other**, and Other filters by Updates, Promotions, Social and Forums. Sorting is local. It uses mailing-list and bulk-sender headers, marketing platforms, social networks and automated senders. People you've written to always count as Important, as do threads you took part in and starred threads. "Always put mail from … in" teaches it per sender. Optionally the AI refines it. You can choose to notify only for Important mail. |
 | Auto-clean | Optionally removes read mail you don't keep: Promotions, Updates, Social, Forums and **one-time codes** (OTP / verification / sign-in codes, detected in English and Arabic). Per kind, choose right after reading or 1 hour to 30 days later, and Trash or Archive. Unread mail, starred mail and conversations you wrote in are never touched. "Right after reading" waits until you move on, and every clean-up shows an Undo. |
 | Calendar | A calendar **inside the main window**, next to your mail: the Mail/Calendar switch at the top left, `g c` / `g i`, the sidebar or the tray. A dark panel on the right of the grid has a mini month with week numbers and event dots and a three-week agenda. Views: Day, Week, Month, Quarter and Year. It shows multi-day bars, "N more…", search, quick add ("Lunch with Sara tomorrow 1pm", "Standup every weekday 9:30"), repeating events (this occurrence or the series), alerts as desktop notifications, and an optional 16-day weather forecast (Open-Meteo, no account). **Outlook calendars** (Outlook.com, Hotmail, Live, MSN, Microsoft 365) connect by themselves when you sign in with Microsoft: every calendar of every Microsoft account, two-way, through Microsoft Graph. **Two-way CalDAV sync** with iCloud, Fastmail, Nextcloud, Zoho, Yahoo, GMX, mailbox.org, Posteo and others, using the mail account's app password, plus read-only **iCal subscriptions** (`webcal://` / `.ics` links: Google Calendar, holidays, sports…). |
-| Arabic / RTL | Every paragraph takes the direction of its first letter, so Arabic (and Hebrew, Persian, Urdu…) reads from the right while English lines in the same email stay on the left. This applies when reading (HTML and plain-text mail, lists, quotes, and plain-text lines that mix both), when writing (each line follows what you type; the sent email carries `dir="rtl"` on Arabic lines so other mail apps show them from the right too), to subjects (a leading "Re:" / "Fwd:" doesn't count) and to AI text. A sender's own right-to-left markup is kept. Arabic uses Noto Sans Arabic. WebKitGTK draws a word ending in a mark (tanween, as in "مرحباً") a few pixels above the rest of its line; Remail works around it: in the reading pane with an invisible Arabic letter mark (U+061C) after word-final marks (vowel marks stay exactly placed; copied text keeps that invisible mark, search ignores it), in the composer and lists with OpenType mark positioning off (fully vowelled ligatures such as "صَلَّى" may show a mark one letter off there). |
+| Arabic / RTL | Every paragraph takes the direction of its first letter, so Arabic (and Hebrew, Persian, Urdu…) reads from the right while English lines in the same email stay on the left. This applies when reading (HTML and plain-text mail, lists, quotes, and plain-text lines that mix both), when writing (each line follows what you type; the sent email carries `dir="rtl"` on Arabic lines so other mail apps show them from the right too), to subjects (a leading "Re:" / "Fwd:" doesn't count) and to AI text. A sender's own right-to-left markup is kept. Arabic uses Noto Sans Arabic. WebKitGTK draws a word ending in a mark (tanween, as in "مرحباً") a few pixels above the rest of its line; Camel Mail works around it: in the reading pane with an invisible Arabic letter mark (U+061C) after word-final marks (vowel marks stay exactly placed; copied text keeps that invisible mark, search ignores it), in the composer and lists with OpenType mark positioning off (fully vowelled ligatures such as "صَلَّى" may show a mark one letter off there). |
 | AI assistant | Bring your own key: any **OpenAI-compatible** (OpenAI, OpenRouter, Gemini, Groq, DeepSeek, Ollama/LM Studio locally…) or **Anthropic-compatible** API. It can summarize a conversation, write a reply ("AI assistance"), and compose, improve, shorten, change the tone of or translate text in the composer. A chat panel (`Ctrl+J`) searches, reads and drafts mail with tools, and asks before it sends, moves or snoozes anything. |
-| MCP | **Remail as an MCP server**: Claude Code, Claude Desktop, Cursor and other agents can search, read and draft your mail. Sending and organizing are off until you allow them. It uses Streamable HTTP on `127.0.0.1` with a token, or the `remail --mcp` stdio bridge. **Remail as an MCP client**: add other MCP servers (command or URL), or import the ones already configured in Claude, Cursor, VS Code, Windsurf, Zed, Gemini CLI or Codex. The assistant can then use their tools, with per-server approval. |
+| MCP | **Camel Mail as an MCP server**: Claude Code, Claude Desktop, Cursor and other agents can search, read and draft your mail. Sending and organizing are off until you allow them. It uses Streamable HTTP on `127.0.0.1` with a token, or the `remail --mcp` stdio bridge. **Camel Mail as an MCP client**: add other MCP servers (command or URL), or import the ones already configured in Claude, Cursor, VS Code, Windsurf, Zed, Gemini CLI or Codex. The assistant can then use their tools, with per-server approval. |
 | Sync | The newest 100 Inbox / 20 folder messages first, older mail paged in on scroll. IMAP IDLE for instant new mail, plus adaptive polling (15 s → 5 min). CONDSTORE flag sync. UIDVALIDITY-safe. |
 | Threads | Conversations grouped by References/In-Reply-To. Long threads stay short: the last 3 messages are shown (or everything from the first unread), and earlier ones fold into a divider. |
 | Reading | Emails render in a sandboxed iframe with a strict CSP. Remote images are blocked until you click "Load images". Links open in your browser. |
 | Actions | Archive, trash, spam, move, star, read/unread, delete forever, empty Trash/Spam, bulk select. Changes apply instantly and are queued with retries for the server. Undo with `Z`. |
 | Compose | Separate compose windows or inline replies. Type `/` for blocks (headings, to-do lists, tables, images, AI assistance) and select text for a formatting bar. Drag photos into the body and files onto the message. Reply / reply all / forward with quoting. Contact autocomplete, attachments (25 MB), signatures per account, templates, auto-BCC. Drafts autosave locally and are stored in the server's Drafts folder. |
-| Undo send | 0, 5, 10 or 30 s window with a countdown pill. Pending sends are delivered before Remail quits. |
+| Undo send | 0, 5, 10 or 30 s window with a countdown pill. Pending sends are delivered before Camel Mail quits. |
 | Send later | Presets (Later today, Tomorrow morning, Monday morning) or a custom time. Manage queued mail in **Scheduled** (send now, reschedule, edit, cancel). Retries with back-off. |
 | Snooze | Later, Afternoon/Evening/Morning, Tomorrow, Day after, Saturday, Monday, or a picked date (22:00). Times are configurable. Snoozed threads return to the top of the inbox with a notification. A reply cancels the snooze. |
 | Unsubscribe | RFC 8058 one-click POST, or open the unsubscribe page, or send the `mailto:` request for you. **Manage Subscriptions** lists newsletter senders. |
@@ -70,7 +70,7 @@ Requirements on Linux: Rust (stable), Node 22+ with pnpm, and the Tauri system l
 pnpm install
 pnpm tauri dev                        # development, with hot reload
 pnpm tauri build                      # release: .deb and AppImage in target/release/bundle/
-sudo apt install ./target/release/bundle/deb/Remail_<version>_amd64.deb
+sudo apt install ./target/release/bundle/deb/Camel Mail_<version>_amd64.deb
 ```
 
 apt skips a package whose version is already installed, so bump `version` in `Cargo.toml`,
@@ -82,9 +82,9 @@ Windows and macOS packages are built by GitHub Actions (`.github/workflows/build
 `REMAIL_DATA_DIR=/some/dir remail` runs a separate profile, with credentials kept in a private file
 instead of the keyring. This is handy for testing.
 
-## Remail account and server
+## Camel Mail account and server
 
-Remail signs in to a Remail account. The server (`crates/remail-server`, Rust + Postgres) keeps
+Camel Mail signs in to a Camel Mail account. The server (`crates/remail-server`, Rust + Postgres) keeps
 your setup, never your mail: mail accounts and their credentials, calendars, signatures, templates,
 sender rules, snoozes, preferences and shortcuts, each encrypted under your own data key. A second
 computer that signs in gets the same setup and talks to the mail servers itself. Organisations
@@ -115,15 +115,15 @@ Settings → **Calendar** → **Connect calendar** next to another mail account 
 provider's CalDAV server and uses the same app password. **Other CalDAV account** takes any server
 address (Nextcloud `https://cloud.example.com/remote.php/dav`, Radicale, Baïkal…). CalDAV calendars
 sync every five minutes and right after your edits; changes made elsewhere in the meantime are
-detected (ETags), and Remail reloads instead of overwriting them.
+detected (ETags), and Camel Mail reloads instead of overwriting them.
 
 **Subscribe with iCal link** adds any published calendar, read-only: a `webcal://` or `.ics` link,
 optionally with a username and password. For Google Calendar (whose two-way sync needs Google
-sign-in, which Remail doesn't support yet), copy the calendar's **Secret address in iCal format**
+sign-in, which Camel Mail doesn't support yet), copy the calendar's **Secret address in iCal format**
 from Google Calendar's settings. Feeds are
 refreshed every 30 minutes, or as often as they ask (`REFRESH-INTERVAL`, 15 min to 1 day), with
 conditional requests so unchanged feeds aren't downloaded again. `webcal://` links are fetched over
-https only; Remail never falls back to plain http by itself (the link's secret token would travel
+https only; Camel Mail never falls back to plain http by itself (the link's secret token would travel
 in the clear), so a calendar that is only offered over http needs its `http://` link pasted explicitly.
 
 Week start (Saturday, Sunday or Monday), week numbers, the default calendar and the weather place
@@ -132,31 +132,31 @@ are set on the same page.
 ## Microsoft accounts (Outlook.com, Hotmail, Microsoft 365)
 
 Microsoft no longer accepts passwords from mail apps (Outlook.com since September 2024; Microsoft 365
-has IMAP passwords off, and SMTP passwords are disabled by default from the end of 2026). Remail
+has IMAP passwords off, and SMTP passwords are disabled by default from the end of 2026). Camel Mail
 signs these accounts in with OAuth: **Sign in with Microsoft** opens Microsoft's sign-in page in your
-browser, which returns to Remail on `http://localhost:<port>` (authorization code flow with PKCE).
+browser, which returns to Camel Mail on `http://localhost:<port>` (authorization code flow with PKCE).
 The refresh token is kept in the system keyring and access tokens are renewed automatically. If the
 sign-in is revoked or expires, the account shows **Sign in again**.
 
-Microsoft only lets registered apps do this, so Remail needs a Microsoft Entra **app (client) ID**
+Microsoft only lets registered apps do this, so Camel Mail needs a Microsoft Entra **app (client) ID**
 once (free, with any Microsoft account):
 
 1. Open [App registrations](https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade)
    in the Microsoft Entra admin center (or the Azure portal) and choose **New registration**.
-2. Name it *Remail*. Supported account types: **Accounts in any organizational directory and
+2. Name it *Camel Mail*. Supported account types: **Accounts in any organizational directory and
    personal Microsoft accounts**.
 3. Redirect URI: platform **Public client/native (mobile & desktop)**, URI `http://localhost`.
-4. Register, and give the **Application (client) ID** to your organisation's Remail server: an
+4. Register, and give the **Application (client) ID** to your organisation's Camel Mail server: an
    admin puts it in the org config (`providers.microsoftApp.clientId`, see
    [the server README](crates/remail-server/README.md)), and every device of the org uses it.
 
-Remail asks for `IMAP.AccessAsUser.All`, `SMTP.Send` and `offline_access` for mail, and in the same
+Camel Mail asks for `IMAP.AccessAsUser.All`, `SMTP.Send` and `offline_access` for mail, and in the same
 sign-in `Calendars.ReadWrite` and `Calendars.Read.Shared` for the calendar (Microsoft Graph; neither
 needs an administrator). Each access token is for one service: the mail token never goes to Graph,
 nor the calendar token to the mail servers. If you (or your organization) don't allow the calendar,
-Remail asks once more for mail alone, and the calendar can be allowed later with **Sign in again**
-under Settings → Calendar; accounts signed in before Remail had calendars show that button once. Some Microsoft 365 organizations only allow apps
-an admin has approved, and some turn off sending from mail apps (SMTP AUTH). Remail then tells you
+Camel Mail asks once more for mail alone, and the calendar can be allowed later with **Sign in again**
+under Settings → Calendar; accounts signed in before Camel Mail had calendars show that button once. Some Microsoft 365 organizations only allow apps
+an admin has approved, and some turn off sending from mail apps (SMTP AUTH). Camel Mail then tells you
 what to ask your admin for, and still adds the account for reading.
 
 ## AI assistant
@@ -169,7 +169,7 @@ Only the emails you use the assistant on are sent to the provider. "Use AI to so
 
 ## MCP
 
-**Let agents use Remail.** In Settings → **Connections**, turn on the MCP server and choose what
+**Let agents use Camel Mail.** In Settings → **Connections**, turn on the MCP server and choose what
 agents may do (read is always on, while drafts, sending and organizing are separate switches). The
 page shows ready-to-copy configs:
 
@@ -183,17 +183,17 @@ claude mcp add --transport http remail http://127.0.0.1:47311/mcp --header "Auth
 ```
 
 The second form (for Claude Desktop and other stdio-only clients) runs a small bridge that forwards
-to the running app and starts Remail in the tray if it isn't running. Tools: `list_accounts`,
+to the running app and starts Camel Mail in the tray if it isn't running. Tools: `list_accounts`,
 `list_emails`, `search_emails`, `read_thread`, `list_folders`, `create_draft`, plus `send_email`,
 `modify_emails` and `snooze_emails` when allowed. Mail sent by an agent still goes through the
 undo-send delay.
 
-**Give the assistant other tools.** Under "Tools for Remail's assistant", add an MCP server (a
+**Give the assistant other tools.** Under "Tools for Camel Mail's assistant", add an MCP server (a
 command such as `npx -y …`, or an HTTP URL with headers), paste a JSON config, or **Import from
 other apps**. Each server can run its tools without asking, or ask every time (the default). Once
 email content is part of the conversation, even servers allowed to run without asking need your
 approval, so a message can't make the assistant send your mail somewhere. Environment values and
-headers (tokens, API keys) are kept in the system keyring, not in Remail's database.
+headers (tokens, API keys) are kept in the system keyring, not in Camel Mail's database.
 
 ## Tests
 
@@ -202,7 +202,7 @@ cargo test -p remail-core             # unit tests (MIME, compose, search, Smart
                                       # + tests/assistant.rs: tool loop vs mock OpenAI/Anthropic, MCP server
 ./scripts/test-server.sh              # starts a throwaway GreenMail IMAP/SMTP server in Docker
 REMAIL_IT=1 cargo test -p remail-core --test greenmail   # end-to-end against the real server
-eval "$(scripts/test-postgres.sh)"    # throwaway Postgres for the Remail server's tests
+eval "$(scripts/test-postgres.sh)"    # throwaway Postgres for the Camel Mail server's tests
 cargo test -p remail-server           # sign-in, sync, keys, licences, allow-list
 REMAIL_PLATFORM_IT=1 cargo test -p remail-core --test platform_e2e   # real client + real server + GreenMail
 pnpm check                            # type-check the UI
@@ -254,9 +254,9 @@ src/            Svelte UI (MainWindow, Sidebar, ThreadList, ThreadView, Composer
   above).
 - **Outlook calendars sync a window**: a year back and two years ahead. Microsoft sign-in, mail and
   Outlook calendars are tested against stand-ins for Microsoft's services, not a live account.
-- **Send later, snooze, the AI sorter and the MCP server run on this computer.** Remail must be running at the scheduled time; enable
+- **Send later, snooze, the AI sorter and the MCP server run on this computer.** Camel Mail must be running at the scheduled time; enable
   "Keep running in the tray" in Settings. Overdue items are processed at the next start.
-- **Gmail labels appear as folders.** Remail does not use X-GM-LABELS, so a message with several
+- **Gmail labels appear as folders.** Camel Mail does not use X-GM-LABELS, so a message with several
   labels is shown once per folder. "All Mail" is used only as the archive target.
 - **The AI assistant needs your own provider.** There is no hosted model, so use an API key or a local
   model server. Connections to other MCP servers support stdio and Streamable HTTP, but not the

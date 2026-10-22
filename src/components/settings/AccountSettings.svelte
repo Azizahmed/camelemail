@@ -1,5 +1,5 @@
 <!--
-  Settings › Account: the Remail account itself (profile, password, two-step
+  Settings › Account: the Camel Mail account itself (profile, password, two-step
   verification, signed-in devices, sign out). Mailboxes are under Settings ›
   Mailboxes.
 -->
@@ -139,7 +139,7 @@
   /** Platform, app version, last active: shown with separators. */
   function deviceMeta(d: Device): string[] {
     const parts = [PLATFORMS[d.platform] ?? d.platform];
-    if (d.appVersion) parts.push(`Remail ${d.appVersion}`);
+    if (d.appVersion) parts.push(`Camel Mail ${d.appVersion}`);
     if (d.lastSeenAt && !d.current) parts.push(t("acct.lastSeen", { when: when(d.lastSeenAt) }));
     return parts;
   }

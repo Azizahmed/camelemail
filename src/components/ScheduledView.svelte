@@ -76,7 +76,7 @@
 
 <div class="page">
   <div class="title"><CalendarClock size={18} /> Scheduled</div>
-  <p class="note">Scheduled emails are sent by Remail on this computer — keep Remail running (it can stay in the tray) at the send time. Anything overdue goes out the next time Remail starts.</p>
+  <p class="note">Scheduled emails are sent by Camel Mail on this computer — keep Camel Mail running (it can stay in the tray) at the send time. Anything overdue goes out the next time Camel Mail starts.</p>
   {#if items.length === 0}
     <EmptyState label="SCHEDULED" />
   {:else}

@@ -214,7 +214,7 @@ pub async fn startup(cfg: &Config, db: &PgPool, env: &Envelope, create_first_org
             let public = match by_slug(db, PUBLIC_SLUG).await? {
                 Some(org) => org,
                 None => {
-                    let org = create(db, env, "Remail", PUBLIC_SLUG, "open").await?;
+                    let org = create(db, env, "Camel Mail", PUBLIC_SLUG, "open").await?;
                     tracing::info!("created the public org");
                     org
                 }

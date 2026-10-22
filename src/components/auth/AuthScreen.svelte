@@ -51,7 +51,7 @@
         <button type="button" class="back" onclick={onback}><ChevronLeft size={15} class="rtl-flip" /> {t("common.back")}</button>
       {/if}
       {#if logo}
-        <img class="logo" src="/brand/remail-mark.png" alt="" />
+        <img class="logo" src="/brand/camel-mail-icon.png" alt="" />
       {/if}
       {#if title}
         <h1 id="auth-title" class="title">{title}</h1>

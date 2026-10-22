@@ -87,7 +87,7 @@ impl EventSink for UiSink {
         match &event {
             EngineEvent::NewMail { messages, .. } if self.settings().notifications && !self.main_focused() => {
                 if messages.len() > 3 {
-                    self.notify("Remail", &format!("{} new emails", messages.len()));
+                    self.notify("Camel Mail", &format!("{} new emails", messages.len()));
                 } else {
                     for m in messages {
                         let subject = if m.subject.is_empty() { "(No subject)" } else { m.subject.as_str() };
@@ -166,7 +166,7 @@ fn chrono_now_ms() -> i64 {
 /// Keeps the tray tooltip's unread count current: at most one count per
 /// ~500 ms, on the blocking pool, and only touches the tray when the text changes.
 async fn tray_updater(app: AppHandle, engine: Engine, refresh: Arc<TrayRefresh>) {
-    let mut shown = "Remail".to_string();
+    let mut shown = "Camel Mail".to_string();
     loop {
         refresh.wake.notified().await;
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -181,7 +181,7 @@ async fn tray_updater(app: AppHandle, engine: Engine, refresh: Arc<TrayRefresh>)
         } else {
             0
         };
-        let tip = if unread > 0 { format!("Remail - {unread} unread") } else { "Remail".to_string() };
+        let tip = if unread > 0 { format!("Camel Mail - {unread} unread") } else { "Camel Mail".to_string() };
         if tip != shown {
             if let Some(tray) = app.tray_by_id("main") {
                 let _ = tray.set_tooltip(Some(&tip));
@@ -295,7 +295,7 @@ pub fn open_compose_window(app: &AppHandle, draft_id: &str) -> tauri::Result<()>
     let url = WebviewUrl::App(format!("index.html#compose={draft_id}").into());
     let built = WebviewWindowBuilder::new(app, &label, url)
         .on_new_window(links_open_outside(app.clone()))
-        .title("New Message - Remail")
+        .title("New Message - Camel Mail")
         .inner_size(800.0, 720.0)
         .min_inner_size(500.0, 450.0)
         .build();
@@ -326,7 +326,7 @@ pub fn open_settings_window(app: &AppHandle, section: Option<&str>) -> tauri::Re
         None => "index.html#settings".to_string(),
     };
     WebviewWindowBuilder::new(app, "settings", WebviewUrl::App(hash.into()))
-        .title("Settings - Remail")
+        .title("Settings - Camel Mail")
         .inner_size(860.0, 640.0)
         .min_inner_size(640.0, 500.0)
         .build()?;
@@ -364,15 +364,15 @@ fn handle_args(app: &AppHandle, args: &[String]) {
 
 #[cfg(desktop)]
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "Open Remail", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", "Open Camel Mail", true, None::<&str>)?;
     let compose = MenuItem::with_id(app, "compose", "Compose New Email", true, None::<&str>)?;
     let calendar = MenuItem::with_id(app, "calendar", "Open Calendar", true, None::<&str>)?;
     let sync = MenuItem::with_id(app, "sync", "Check for New Mail", true, None::<&str>)?;
-    let quit_item = MenuItem::with_id(app, "quit", "Quit Remail", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "Quit Camel Mail", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &compose, &calendar, &sync, &quit_item])?;
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().cloned().expect("bundled icon"))
-        .tooltip("Remail")
+        .tooltip("Camel Mail")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {

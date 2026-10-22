@@ -104,7 +104,7 @@
     }
   }
 
-  /** Sign the Microsoft account in again, so Remail may read its calendar. */
+  /** Sign the Microsoft account in again, so Camel Mail may read its calendar. */
   async function signInAgain(a: CalAccount) {
     if (!a.mailAccountId) return;
     signingIn = a.id;
@@ -135,13 +135,13 @@
       a.kind === "ics"
         ? {
             title: "Unsubscribe?",
-            message: `Remove ${a.name} from Remail? The calendar itself isn't changed; you can subscribe again with its link.`,
+            message: `Remove ${a.name} from Camel Mail? The calendar itself isn't changed; you can subscribe again with its link.`,
             confirmLabel: "Unsubscribe",
             danger: true,
           }
         : {
             title: "Disconnect calendar account?",
-            message: `Remove ${a.name} from Remail? Its events are only removed from this computer, not from the server.`,
+            message: `Remove ${a.name} from Camel Mail? Its events are only removed from this computer, not from the server.`,
             confirmLabel: "Disconnect",
             danger: true,
           },
@@ -198,7 +198,7 @@
 </script>
 
 <h1>Calendar</h1>
-<p class="intro">Outlook, Hotmail, Live, MSN and Microsoft 365 accounts bring all their calendars by themselves once you sign in with Microsoft. Remail syncs other calendars over CalDAV (iCloud, Fastmail, Nextcloud, Zoho, Yahoo, GMX, mailbox.org and others), using the same app password as your mail. You can also subscribe to any calendar with its iCal link (Google Calendar, holidays, sports, school…); those are read-only.{#if !isMobile} The calendar is next to your mail: use the switch at the top left, or press <kbd>G</kbd> then <kbd>C</kbd>.{/if}</p>
+<p class="intro">Outlook, Hotmail, Live, MSN and Microsoft 365 accounts bring all their calendars by themselves once you sign in with Microsoft. Camel Mail syncs other calendars over CalDAV (iCloud, Fastmail, Nextcloud, Zoho, Yahoo, GMX, mailbox.org and others), using the same app password as your mail. You can also subscribe to any calendar with its iCal link (Google Calendar, holidays, sports, school…); those are read-only.{#if !isMobile} The calendar is next to your mail: use the switch at the top left, or press <kbd>G</kbd> then <kbd>C</kbd>.{/if}</p>
 
 <div class="group-title">Connected calendars</div>
 <div class="list">
@@ -283,7 +283,7 @@
       {:else}
         Paste a <code>webcal://</code> or <code>.ics</code> link: Google Calendar's “Secret address in iCal format”, a published Outlook calendar, an iCloud public calendar, or a holiday, sports or school calendar.
       {/if}
-      Subscribed calendars are read-only; Remail checks them for changes every 30 minutes, or as often as the calendar asks.
+      Subscribed calendars are read-only; Camel Mail checks them for changes every 30 minutes, or as often as the calendar asks.
     </p>
     <div class="field"><label for="ics-url">iCal link</label><input id="ics-url" class="input" bind:value={ics.url} placeholder="webcal://… or https://…/calendar.ics" spellcheck="false" onkeydown={(e) => e.key === "Enter" && subscribe()} /></div>
     <div class="field"><label for="ics-name">Name (optional)</label><input id="ics-name" class="input" bind:value={ics.name} placeholder="Uses the calendar's own name" /></div>

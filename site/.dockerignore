@@ -1,0 +1,12 @@
+*
+!nginx.conf
+!security-headers.conf
+!index.html
+!404.html
+!favicon.ico
+!robots.txt
+!sitemap.xml
+!assets
+!privacy
+!terms
+!ar

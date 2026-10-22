@@ -1,4 +1,4 @@
-<!-- The first screen: create an account or sign in, the language, and "Using Remail at work?". -->
+<!-- The first screen: create an account or sign in, the language, and "Using Camel Mail at work?". -->
 <script lang="ts">
   import { Building2 } from "@lucide/svelte";
   import { t } from "../../lib/i18n.svelte";

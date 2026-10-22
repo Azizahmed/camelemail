@@ -43,7 +43,7 @@ services:
       REMAIL_MASTER_KEY_FILE: /etc/remail/master.key
       # Optional: smtp://user:pass@host:587 (lettre URL). Without it, mail is not sent.
       REMAIL_SMTP_URL: ${REMAIL_SMTP_URL:-}
-      REMAIL_MAIL_FROM: ${REMAIL_MAIL_FROM:-Remail <no-reply@localhost>}
+      REMAIL_MAIL_FROM: ${REMAIL_MAIL_FROM:-Camel Mail <no-reply@localhost>}
       RUST_LOG: info,sqlx=warn
     ports:
       - "127.0.0.1:8080:8080"

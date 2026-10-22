@@ -1,6 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Remail",
+  "productName": "Camel Mail",
+  "mainBinaryName": "remail",
   "version": "0.4.3",
   "identifier": "app.remail.desktop",
   "build": {
@@ -14,7 +15,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Remail",
+        "title": "Camel Mail",
         "width": 1200,
         "height": 800,
         "minWidth": 720,
@@ -43,7 +44,7 @@
     ],
     "category": "Productivity",
     "shortDescription": "Fast, private desktop email",
-    "longDescription": "Remail is a desktop email client for any IMAP/SMTP account with a unified inbox, snooze, send later, undo send and one-click unsubscribe. All data stays on your computer.",
+    "longDescription": "Camel Mail is a desktop email client for any IMAP/SMTP account with a unified inbox, snooze, send later, undo send and one-click unsubscribe. All data stays on your computer.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

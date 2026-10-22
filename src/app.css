@@ -494,3 +494,6 @@ kbd {
 [dir="rtl"] .rtl-flip {
   transform: scaleX(-1);
 }
+
+/* The Camel Mail icon is square; the slots it sits in are not. */
+img[src$="camel-mail-icon.png"] { object-fit: contain; }

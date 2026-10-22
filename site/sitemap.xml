@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <url><loc>https://mail.camelapp.si/</loc><xhtml:link rel="alternate" hreflang="ar" href="https://mail.camelapp.si/ar/"/></url>
+  <url><loc>https://mail.camelapp.si/ar/</loc><xhtml:link rel="alternate" hreflang="en" href="https://mail.camelapp.si/"/></url>
+  <url><loc>https://mail.camelapp.si/privacy/</loc><xhtml:link rel="alternate" hreflang="ar" href="https://mail.camelapp.si/ar/privacy/"/></url>
+  <url><loc>https://mail.camelapp.si/ar/privacy/</loc><xhtml:link rel="alternate" hreflang="en" href="https://mail.camelapp.si/privacy/"/></url>
+  <url><loc>https://mail.camelapp.si/terms/</loc><xhtml:link rel="alternate" hreflang="ar" href="https://mail.camelapp.si/ar/terms/"/></url>
+  <url><loc>https://mail.camelapp.si/ar/terms/</loc><xhtml:link rel="alternate" hreflang="en" href="https://mail.camelapp.si/terms/"/></url>
+</urlset>

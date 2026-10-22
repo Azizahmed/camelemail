@@ -1,4 +1,4 @@
-// The Remail account as this window sees it: `cloud_status`, kept current by
+// The Camel Mail account as this window sees it: `cloud_status`, kept current by
 // `cloud-event`. App.svelte gates every window on it (see gate.ts).
 
 import { api, onCloudEvent } from "./api";
@@ -106,7 +106,7 @@ export function setMe(me: Me) {
   if (cloud.status) cloud.status = { ...cloud.status, me };
 }
 
-/** Sign out of Remail on this device (the page reloads when the status says so). */
+/** Sign out of Camel Mail on this device (the page reloads when the status says so). */
 export async function signOut() {
   await api.cloudLogout();
   const s = await refreshCloud();

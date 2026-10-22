@@ -107,7 +107,7 @@ fn page(lang: Lang, title: &str, body: &str) -> Response {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>{title} · Remail</title>
+<title>{title} · Camel Mail</title>
 <style>
   body {{ margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f7f8fa; color: #1c1d1f;
          font: 15px/1.5 system-ui, -apple-system, "Segoe UI", "Noto Sans", "Noto Sans Arabic", sans-serif; }}
@@ -167,8 +167,8 @@ fn hidden(token: &str, lang: Lang) -> String {
 fn error_text(lang: Lang, e: &AppError) -> &'static str {
     match e.code() {
         ErrorCode::InvalidToken => lang.tr(
-            "This link is not valid or has expired. Ask for a new one in the Remail app.",
-            "هذا الرابط غير صالح أو انتهت صلاحيته. اطلب رابطًا جديدًا من تطبيق Remail.",
+            "This link is not valid or has expired. Ask for a new one in the Camel Mail app.",
+            "هذا الرابط غير صالح أو انتهت صلاحيته. اطلب رابطًا جديدًا من تطبيق Camel Mail.",
         ),
         ErrorCode::WeakPassword => lang.tr(
             "Choose a stronger password: at least 10 characters, not easy to guess, and without your name or e-mail.",
@@ -186,8 +186,8 @@ async fn verify_page(headers: HeaderMap, Query(q): Query<LinkQuery>) -> Response
     let body = format!(
         r#"<p>{}</p><form method="post" action="/verify">{}<button type="submit">{}</button></form>{}"#,
         lang.tr(
-            "Confirm this e-mail address for your Remail account.",
-            "أكّد عنوان البريد هذا لحسابك في Remail."
+            "Confirm this e-mail address for your Camel Mail account.",
+            "أكّد عنوان البريد هذا لحسابك في Camel Mail."
         ),
         hidden(&q.t, lang),
         lang.tr("Confirm e-mail", "تأكيد البريد"),
@@ -209,7 +209,7 @@ async fn verify_submit(
             lang.tr("E-mail confirmed", "تم تأكيد البريد"),
             &format!(
                 "<p>{}</p>",
-                lang.tr("You can now sign in to Remail on any device.", "يمكنك الآن تسجيل الدخول إلى Remail من أي جهاز.")
+                lang.tr("You can now sign in to Camel Mail on any device.", "يمكنك الآن تسجيل الدخول إلى Camel Mail من أي جهاز.")
             ),
         ),
         Err(e) => page(
@@ -262,7 +262,7 @@ async fn reset_submit(
             lang.tr("Password changed", "تم تغيير كلمة المرور"),
             &format!(
                 "<p>{}</p>",
-                lang.tr("Sign in to Remail with your new password.", "سجّل الدخول إلى Remail بكلمة المرور الجديدة.")
+                lang.tr("Sign in to Camel Mail with your new password.", "سجّل الدخول إلى Camel Mail بكلمة المرور الجديدة.")
             ),
         ),
         // A weak password can be fixed on the same page; anything else can't.
@@ -280,8 +280,8 @@ async fn invite_page(State(s): State<AppState>, headers: HeaderMap, Query(q): Qu
     let body = format!(
         r#"<p>{steps}</p><label>{server_l}</label><code>{server}</code><label>{code_l}</label><code>{token}</code>{switch}"#,
         steps = lang.tr(
-            "Open the Remail app, choose \u{201c}Using Remail at work?\u{201d} and enter this server, then Create account and paste the invitation code.",
-            "افتح تطبيق Remail، واختر «تستخدم Remail في العمل؟» وأدخل هذا الخادم، ثم اختر «إنشاء حساب» والصق رمز الدعوة."
+            "Open the Camel Mail app, choose \u{201c}Using Camel Mail at work?\u{201d} and enter this server, then Create account and paste the invitation code.",
+            "افتح تطبيق Camel Mail، واختر «تستخدم Camel Mail في العمل؟» وأدخل هذا الخادم، ثم اختر «إنشاء حساب» والصق رمز الدعوة."
         ),
         server_l = lang.tr("Server", "الخادم"),
         server = esc(&s.cfg.public_url),
@@ -289,5 +289,5 @@ async fn invite_page(State(s): State<AppState>, headers: HeaderMap, Query(q): Qu
         token = esc(&q.t),
         switch = switch(lang, "/invite", &q.t),
     );
-    page(lang, lang.tr("You're invited to Remail", "دعوة للانضمام إلى Remail"), &body)
+    page(lang, lang.tr("You're invited to Camel Mail", "دعوة للانضمام إلى Camel Mail"), &body)
 }

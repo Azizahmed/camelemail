@@ -405,9 +405,9 @@
     {/if}
     {#if cal.calendars.length === 0 && cal.accounts.length === 0}
       <div class="empty">
-        <img src="/brand/remail-mark.png" alt="" />
+        <img src="/brand/camel-mail-icon.png" alt="" />
         <h2>Connect your calendar</h2>
-        <p>Remail syncs with iCloud, Fastmail, Nextcloud, Zoho, Yahoo and other CalDAV calendars, using the same app password as your mail. You can also subscribe to any calendar with its iCal link, including Google Calendar and Outlook.</p>
+        <p>Camel Mail syncs with iCloud, Fastmail, Nextcloud, Zoho, Yahoo and other CalDAV calendars, using the same app password as your mail. You can also subscribe to any calendar with its iCal link, including Google Calendar and Outlook.</p>
         <button class="btn primary" onclick={() => api.openSettings("calendar")}>Connect a calendar</button>
       </div>
     {:else if cal.results}

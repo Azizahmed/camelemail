@@ -229,7 +229,7 @@
 
   /**
    * The draft as the engine gets it: quoted text marked right-to-left where it is Arabic.
-   * `final`: leaving Remail (sent or saved to the server), so to-do boxes become characters.
+   * `final`: leaving Camel Mail (sent or saved to the server), so to-do boxes become characters.
    */
   function outgoing(final = false): Draft {
     const s = $state.snapshot(d) as Draft;

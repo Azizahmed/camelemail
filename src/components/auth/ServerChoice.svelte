@@ -1,4 +1,4 @@
-<!-- "Using Remail at work?": a server address or an organisation code. -->
+<!-- "Using Camel Mail at work?": a server address or an organisation code. -->
 <script lang="ts">
   import { api } from "../../lib/api";
   import { autofocus } from "../../lib/actions";

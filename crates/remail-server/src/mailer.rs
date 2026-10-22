@@ -164,9 +164,9 @@ fn links(public_url: &str, path: &str, token: &str) -> String {
 pub fn verify_mail(locale: &str, public_url: &str, to: &str, token: &str) -> Mail {
     let l = links(public_url, "verify", token);
     let (subject, body) = if ar(locale) {
-        ("تأكيد بريدك في Remail", format!("افتح هذا الرابط لتأكيد بريدك الإلكتروني:\n\n{l}\n\nينتهي الرابط خلال 24 ساعة."))
+        ("تأكيد بريدك في Camel Mail", format!("افتح هذا الرابط لتأكيد بريدك الإلكتروني:\n\n{l}\n\nينتهي الرابط خلال 24 ساعة."))
     } else {
-        ("Confirm your Remail e-mail", format!("Open this link to confirm your e-mail address:\n\n{l}\n\nThe link expires in 24 hours."))
+        ("Confirm your Camel Mail e-mail", format!("Open this link to confirm your e-mail address:\n\n{l}\n\nThe link expires in 24 hours."))
     };
     Mail { to: to.into(), subject: subject.into(), body }
 }
@@ -174,9 +174,9 @@ pub fn verify_mail(locale: &str, public_url: &str, to: &str, token: &str) -> Mai
 pub fn reset_mail(locale: &str, public_url: &str, to: &str, token: &str) -> Mail {
     let l = links(public_url, "reset", token);
     let (subject, body) = if ar(locale) {
-        ("إعادة تعيين كلمة مرور Remail", format!("افتح هذا الرابط لاختيار كلمة مرور جديدة:\n\n{l}\n\nينتهي الرابط خلال ساعة. إن لم تطلب ذلك فتجاهل هذه الرسالة."))
+        ("إعادة تعيين كلمة مرور Camel Mail", format!("افتح هذا الرابط لاختيار كلمة مرور جديدة:\n\n{l}\n\nينتهي الرابط خلال ساعة. إن لم تطلب ذلك فتجاهل هذه الرسالة."))
     } else {
-        ("Reset your Remail password", format!("Open this link to choose a new password:\n\n{l}\n\nThe link expires in an hour. If you didn't ask for this, ignore this e-mail."))
+        ("Reset your Camel Mail password", format!("Open this link to choose a new password:\n\n{l}\n\nThe link expires in an hour. If you didn't ask for this, ignore this e-mail."))
     };
     Mail { to: to.into(), subject: subject.into(), body }
 }
@@ -185,16 +185,16 @@ pub fn invite_mail(public_url: &str, org_name: &str, to: &str, token: &str) -> M
     let l = links(public_url, "invite", token);
     Mail {
         to: to.into(),
-        subject: format!("You're invited to {org_name} on Remail"),
-        body: format!("Open this link in Remail to create your account:\n\n{l}\n\nThe invite expires in 7 days."),
+        subject: format!("You're invited to {org_name} on Camel Mail"),
+        body: format!("Open this link in Camel Mail to create your account:\n\n{l}\n\nThe invite expires in 7 days."),
     }
 }
 
 pub fn already_registered_mail(locale: &str, public_url: &str, to: &str) -> Mail {
     let (subject, body) = if ar(locale) {
-        ("لديك حساب في Remail", format!("طلب أحدهم إنشاء حساب بهذا البريد، ولديك حساب بالفعل. إن نسيت كلمة المرور فأعد تعيينها من {public_url}."))
+        ("لديك حساب في Camel Mail", format!("طلب أحدهم إنشاء حساب بهذا البريد، ولديك حساب بالفعل. إن نسيت كلمة المرور فأعد تعيينها من {public_url}."))
     } else {
-        ("You already have a Remail account", format!("Someone tried to sign up with this e-mail, which already has an account. If you forgot your password, reset it from {public_url}."))
+        ("You already have a Camel Mail account", format!("Someone tried to sign up with this e-mail, which already has an account. If you forgot your password, reset it from {public_url}."))
     };
     Mail { to: to.into(), subject: subject.into(), body }
 }

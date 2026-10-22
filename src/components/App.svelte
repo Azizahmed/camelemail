@@ -3,7 +3,7 @@
   // that window's code: the main window doesn't parse Settings, a compose
   // window doesn't parse the mail list or the calendar.
   //
-  // Every window waits for the Remail account (see lib/gate.ts): the main
+  // Every window waits for the Camel Mail account (see lib/gate.ts): the main
   // window shows the sign-in screens, the move of an existing setup, the
   // first sync and the first mailbox before the app; compose and settings
   // windows show nothing until it's ready.
@@ -61,7 +61,7 @@
 </script>
 
 {#snippet failed(e: unknown)}
-  <p class="load-error">Remail couldn't load this window ({String(e)}). <button onclick={() => location.reload()}>Try again</button></p>
+  <p class="load-error">Camel Mail couldn't load this window ({String(e)}). <button onclick={() => location.reload()}>Try again</button></p>
 {/snippet}
 
 {#snippet waiting()}

@@ -1,4 +1,4 @@
-<!-- Create a Remail account. -->
+<!-- Create a Camel Mail account. -->
 <script lang="ts">
   import { api } from "../../lib/api";
   import { autofocus } from "../../lib/actions";

@@ -175,7 +175,7 @@ export const api = {
   aiChatReset: (conversationId: string) => invoke<void>("ai_chat_reset", { conversationId }),
   aiApprove: (callId: string, allow: boolean) => invoke<void>("ai_approve", { callId, allow }),
 
-  // Remail account (docs/platform/client-contract.md). Server errors reject
+  // Camel Mail account (docs/platform/client-contract.md). Server errors reject
   // with "cloud:<code>:<message>"; show them with errMessage() from i18n.
   cloudStatus: () => invoke<CloudStatus>("cloud_status"),
   /** A URL, a bare host or an organisation code. Saves the server. */

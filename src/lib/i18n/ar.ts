@@ -24,24 +24,24 @@ export const ar: Record<MessageKey, string> = {
   "lang.label": "اللغة",
 
   // ---- البوابة ----
-  "gate.loadError": "تعذّر على Remail تشغيل خدمته الخلفية.",
-  "gate.signInMain": "سجّل الدخول إلى Remail من النافذة الرئيسية.",
-  "gate.signedOut.revoked": "سُجّل خروج هذا الجهاز من Remail من جهاز آخر أو من قِبل المسؤول.",
-  "gate.signedOut.expired": "انتهت جلستك في Remail. سجّل الدخول مجددًا للمتابعة.",
+  "gate.loadError": "تعذّر على Camel Mail تشغيل خدمته الخلفية.",
+  "gate.signInMain": "سجّل الدخول إلى Camel Mail من النافذة الرئيسية.",
+  "gate.signedOut.revoked": "سُجّل خروج هذا الجهاز من Camel Mail من جهاز آخر أو من قِبل المسؤول.",
+  "gate.signedOut.expired": "انتهت جلستك في Camel Mail. سجّل الدخول مجددًا للمتابعة.",
 
   // ---- الترحيب ----
-  "welcome.title": "مرحبًا بك في Remail",
+  "welcome.title": "مرحبًا بك في Camel Mail",
   "welcome.subtitle": "بريد سريع يحفظ خصوصيتك. صناديق بريدك وإعداداتك ترافقك على كل جهاز تسجّل الدخول منه.",
   "welcome.org": "تسجيل الدخول إلى {org}",
   "welcome.create": "إنشاء حساب",
   "welcome.signIn": "تسجيل الدخول",
-  "welcome.work": "تستخدم Remail في العمل؟",
+  "welcome.work": "تستخدم Camel Mail في العمل؟",
   "welcome.server": "الخادم: {server}",
   "welcome.changeServer": "تغيير",
   "welcome.connecting": "جارٍ الاتصال بـ {server}…",
-  "welcome.unreachable": "يتعذّر على Remail الوصول إلى {server}.",
-  "welcome.update": "يتطلب هذا الخادم الإصدار {version} من Remail أو أحدث. حدّث Remail للمتابعة.",
-  "welcome.licence": "ترخيص Remail الخاص بمؤسستك غير صالح حاليًا. تواصل مع المسؤول.",
+  "welcome.unreachable": "يتعذّر على Camel Mail الوصول إلى {server}.",
+  "welcome.update": "يتطلب هذا الخادم الإصدار {version} من Camel Mail أو أحدث. حدّث Camel Mail للمتابعة.",
+  "welcome.licence": "ترخيص Camel Mail الخاص بمؤسستك غير صالح حاليًا. تواصل مع المسؤول.",
   "welcome.invite": "الانضمام بدعوة",
 
   // ---- الخادم ----
@@ -50,7 +50,7 @@ export const ar: Record<MessageKey, string> = {
   "server.label": "عنوان الخادم أو رمز المؤسسة",
   "server.placeholder": "mail.example.com أو ACME42",
   "server.submit": "اتصال",
-  "server.useDefault": "استخدام خدمة Remail القياسية بدلًا من ذلك",
+  "server.useDefault": "استخدام خدمة Camel Mail القياسية بدلًا من ذلك",
   "server.connected": "تم الاتصال بـ {name}",
   "server.required": "أدخل عنوان الخادم أو رمز المؤسسة.",
 
@@ -71,7 +71,7 @@ export const ar: Record<MessageKey, string> = {
   "pw.mismatch": "كلمتا المرور غير متطابقتين.",
 
   // ---- إنشاء حساب ----
-  "signup.title": "أنشئ حسابك في Remail",
+  "signup.title": "أنشئ حسابك في Camel Mail",
   "signup.body": "حساب واحد يُبقي صناديق بريدك وتواقيعك وإعداداتك متطابقة على جميع أجهزتك.",
   "signup.passwordHint": "10 أحرف على الأقل. بضع كلمات لا رابط بينها تصنع كلمة مرور قوية.",
   "signup.invite": "رمز الدعوة",
@@ -92,10 +92,10 @@ export const ar: Record<MessageKey, string> = {
   "verify.backToSignIn": "العودة إلى تسجيل الدخول",
 
   // ---- تسجيل الدخول ----
-  "signin.title": "تسجيل الدخول إلى Remail",
+  "signin.title": "تسجيل الدخول إلى Camel Mail",
   "signin.forgot": "نسيت كلمة المرور؟",
   "signin.submit": "تسجيل الدخول",
-  "signin.noAccount": "جديد على Remail؟",
+  "signin.noAccount": "جديد على Camel Mail؟",
   "signin.create": "أنشئ حسابًا",
   "signin.askAdmin": "نسيت كلمة المرور؟ يمكن للمسؤول إعادة تعيينها.",
 
@@ -113,7 +113,7 @@ export const ar: Record<MessageKey, string> = {
   // ---- إعداد التحقق بخطوتين ----
   "totp.title": "إعداد التحقق بخطوتين",
   "totp.required": "تشترط مؤسستك التحقق بخطوتين. أكمل إعداده لإتمام تسجيل الدخول.",
-  "totp.intro": "في كل مرة تسجّل فيها الدخول من جهاز جديد، سيطلب Remail أيضًا رمزًا من هاتفك.",
+  "totp.intro": "في كل مرة تسجّل فيها الدخول من جهاز جديد، سيطلب Camel Mail أيضًا رمزًا من هاتفك.",
   "totp.scan": "امسح هذا الرمز بتطبيق مصادقة، مثل Google Authenticator أو Microsoft Authenticator أو 1Password.",
   "totp.manual": "لا يمكنك مسحه؟ أدخل هذا المفتاح في التطبيق:",
   "totp.copyKey": "نسخ المفتاح",
@@ -129,9 +129,9 @@ export const ar: Record<MessageKey, string> = {
 
   // ---- إعادة تعيين كلمة المرور ----
   "reset.title": "إعادة تعيين كلمة المرور",
-  "reset.body": "أدخل عنوان البريد الإلكتروني لحسابك في Remail، وسنرسل إليه رابطًا لاختيار كلمة مرور جديدة.",
+  "reset.body": "أدخل عنوان البريد الإلكتروني لحسابك في Camel Mail، وسنرسل إليه رابطًا لاختيار كلمة مرور جديدة.",
   "reset.submit": "إرسال رابط إعادة التعيين",
-  "reset.sent": "إذا كان هناك حساب في Remail للعنوان {email}، فرابط إعادة التعيين في طريقه إليك. يبقى صالحًا لمدة ساعة واحدة.",
+  "reset.sent": "إذا كان هناك حساب في Camel Mail للعنوان {email}، فرابط إعادة التعيين في طريقه إليك. يبقى صالحًا لمدة ساعة واحدة.",
   "reset.haveLink": "لديّ رابط إعادة التعيين",
   "reset.newTitle": "اختر كلمة مرور جديدة",
   "reset.tokenLabel": "رابط إعادة التعيين أو الرمز",
@@ -143,8 +143,8 @@ export const ar: Record<MessageKey, string> = {
   "reset.done": "تم تغيير كلمة المرور. سجّل الدخول بكلمة المرور الجديدة.",
 
   // ---- نقل الإعداد الحالي ----
-  "migrate.title": "هل تريد نقل إعداد هذا الحاسوب إلى حسابك في Remail؟",
-  "migrate.body": "أصبح Remail يحفظ صناديق بريدك وإعداداتك في حسابك، لتجدها جاهزة على كل جهاز تسجّل الدخول منه.",
+  "migrate.title": "هل تريد نقل إعداد هذا الحاسوب إلى حسابك في Camel Mail؟",
+  "migrate.body": "أصبح Camel Mail يحفظ صناديق بريدك وإعداداتك في حسابك، لتجدها جاهزة على كل جهاز تسجّل الدخول منه.",
   "migrate.local": "صناديق البريد على هذا الحاسوب: {n}",
   "migrate.server": "صناديق البريد الموجودة في حسابك: {n}",
   "migrate.upload": "نقل إعداد هذا الحاسوب",
@@ -161,11 +161,11 @@ export const ar: Record<MessageKey, string> = {
   "sync.title": "جارٍ إعداد صناديق بريدك",
   "sync.body": "ننقل صناديق بريدك وإعداداتك إلى هذا الجهاز. لن يستغرق ذلك سوى لحظات.",
   "sync.progress": "{done} من {total}",
-  "sync.offline": "يتعذّر على Remail الوصول إلى خادمه الآن، وسيواصل المحاولة.",
+  "sync.offline": "يتعذّر على Camel Mail الوصول إلى خادمه الآن، وسيواصل المحاولة.",
 
   // ---- أول صندوق بريد ----
   "first.title": "اربط أول صندوق بريد",
-  "first.body": "أضف حساب البريد الإلكتروني الذي تريد استخدامه في Remail. يمكنك إضافة المزيد لاحقًا من الإعدادات.",
+  "first.body": "أضف حساب البريد الإلكتروني الذي تريد استخدامه في Camel Mail. يمكنك إضافة المزيد لاحقًا من الإعدادات.",
   "first.calendarOnly": "تحتاج إلى التقويم فقط؟ افتح التقويم",
   "first.signedInAs": "مسجّل الدخول باسم {email}",
 
@@ -215,12 +215,12 @@ export const ar: Record<MessageKey, string> = {
   "setup.otherServer": "خادم بريد آخر",
   "setup.presetDomain": "استخدم عنوانًا ينتهي بـ {domain}.",
   "setup.noServers": "لم تُدرج مؤسستك أي خوادم بريد بعد. تواصل مع المسؤول.",
-  "setup.privacy": "تُحفظ كلمة مرورك في سلسلة مفاتيح هذا الجهاز، وتُحفظ مشفّرة في حسابك في Remail لتتمكن أجهزتك الأخرى من الاتصال. تنتقل رسائلك مباشرة بين هذا الجهاز وخادم بريدك.",
+  "setup.privacy": "تُحفظ كلمة مرورك في سلسلة مفاتيح هذا الجهاز، وتُحفظ مشفّرة في حسابك في Camel Mail لتتمكن أجهزتك الأخرى من الاتصال. تنتقل رسائلك مباشرة بين هذا الجهاز وخادم بريدك.",
 
   // ---- الإعدادات ----
   "settings.account": "الحساب",
   "settings.ai": "المساعدة بالذكاء الاصطناعي",
-  "settings.languageDesc": "لغة القوائم والشاشات في Remail. لا تزال بعض الشاشات باللغة الإنجليزية.",
+  "settings.languageDesc": "لغة القوائم والشاشات في Camel Mail. لا تزال بعض الشاشات باللغة الإنجليزية.",
 
   // ---- الإعدادات: الحساب ----
   "acct.profile": "الملف الشخصي",
@@ -243,24 +243,24 @@ export const ar: Record<MessageKey, string> = {
   "acct.twofaRequired": "تشترط مؤسستك التحقق بخطوتين، لذا لا يمكن إيقافه.",
   "acct.twofaDisabled": "تم إيقاف التحقق بخطوتين",
   "acct.devices": "الأجهزة المسجّل دخولها",
-  "acct.devicesDesc": "الأجهزة التي سُجّل فيها الدخول إلى حسابك في Remail.",
+  "acct.devicesDesc": "الأجهزة التي سُجّل فيها الدخول إلى حسابك في Camel Mail.",
   "acct.thisDevice": "هذا الجهاز",
   "acct.lastSeen": "آخر نشاط {when}",
   "acct.signOutDevice": "تسجيل الخروج",
   "acct.signOutDeviceTitle": "تسجيل خروج {name}؟",
-  "acct.signOutDeviceBody": "سيُسجَّل خروج {name} من Remail، وسيُزال إعداد Remail منه عند اتصاله بالإنترنت في المرة القادمة.",
+  "acct.signOutDeviceBody": "سيُسجَّل خروج {name} من Camel Mail، وسيُزال إعداد Camel Mail منه عند اتصاله بالإنترنت في المرة القادمة.",
   "acct.deviceSignedOut": "تم تسجيل خروج الجهاز",
   "acct.noDevices": "لا توجد أجهزة أخرى مسجّل دخولها.",
-  "acct.signOutTitle": "تسجيل الخروج من Remail؟",
-  "acct.signOutBody": "ستُزال صناديق بريدك وإعداداتك والرسائل المنزّلة من هذا الجهاز. ويبقى كل شيء في حسابك في Remail، جاهزًا عند تسجيل دخولك مجددًا.",
-  "acct.signOutDesc": "إزالة حسابك في Remail وإعداده من هذا الجهاز.",
+  "acct.signOutTitle": "تسجيل الخروج من Camel Mail؟",
+  "acct.signOutBody": "ستُزال صناديق بريدك وإعداداتك والرسائل المنزّلة من هذا الجهاز. ويبقى كل شيء في حسابك في Camel Mail، جاهزًا عند تسجيل دخولك مجددًا.",
+  "acct.signOutDesc": "إزالة حسابك في Camel Mail وإعداده من هذا الجهاز.",
   "acct.role.owner": "المالك",
   "acct.role.admin": "مسؤول",
   "acct.role.user": "عضو",
 
   // ---- إعدادات الهاتف (src/mobile) ----
   "mset.title": "الإعدادات",
-  "mset.remailAccount": "حساب Remail",
+  "mset.remailAccount": "حساب Camel Mail",
   "mset.synced": "متزامن",
   "mset.accountPitch": "صناديق بريدك وإعداداتك ترافقك على كل أجهزتك.",
   "mset.mailboxesSynced.one": "صندوق بريد واحد متزامن",
@@ -289,8 +289,8 @@ export const ar: Record<MessageKey, string> = {
   "mset.signatures": "التواقيع",
   "mset.templates": "القوالب",
   "mset.snooze": "التأجيل",
-  "mset.about": "حول Remail",
-  "mset.signOutBody": "ستُزال صناديق بريدك وإعداداتك والرسائل المنزّلة من هذا الهاتف. ويبقى كل شيء في حسابك في Remail، جاهزًا عند تسجيل دخولك مجددًا.",
+  "mset.about": "حول Camel Mail",
+  "mset.signOutBody": "ستُزال صناديق بريدك وإعداداتك والرسائل المنزّلة من هذا الهاتف. ويبقى كل شيء في حسابك في Camel Mail، جاهزًا عند تسجيل دخولك مجددًا.",
   "mset.pinsTitle": "تعديل التصنيفات المثبّتة",
   "mset.pinsIntro": "اختر حتى {n} تصنيفات للشريط أسفل بريدك، بالترتيب الذي تريده.",
   "mset.pinned": "في الشريط السفلي",
@@ -313,9 +313,9 @@ export const ar: Record<MessageKey, string> = {
   "mset.action.snooze": "تأجيل",
   "mset.action.none": "لا شيء",
   "mset.permission": "الإذن",
-  "mset.permGranted": "يمكن لـ Remail عرض الإشعارات على هذا الهاتف.",
-  "mset.permPrompt": "يحتاج Remail إلى إذنك لعرض الإشعارات.",
-  "mset.permDenied": "الإشعارات متوقفة لتطبيق Remail. لتفعيلها افتح إعدادات Android، ثم التطبيقات › Remail › الإشعارات.",
+  "mset.permGranted": "يمكن لـ Camel Mail عرض الإشعارات على هذا الهاتف.",
+  "mset.permPrompt": "يحتاج Camel Mail إلى إذنك لعرض الإشعارات.",
+  "mset.permDenied": "الإشعارات متوقفة لتطبيق Camel Mail. لتفعيلها افتح إعدادات Android، ثم التطبيقات › Camel Mail › الإشعارات.",
   "mset.allow": "السماح بالإشعارات",
   "mset.alerts": "التنبيهات",
   "mset.newMail": "البريد الجديد",
@@ -323,7 +323,7 @@ export const ar: Record<MessageKey, string> = {
   "mset.importantOnly": "للبريد المهم فقط",
   "mset.snoozeWake": "عودة البريد المؤجّل",
   "mset.snoozeWakeDesc": "أبلغني عند عودة رسالة مؤجّلة إلى البريد الوارد.",
-  "mset.pushNote": "يتحقق Remail من البريد الجديد ما دام مفتوحًا أو يعمل في الخلفية. أما التنبيهات حين يكون Remail مغلقًا تمامًا فتحتاج إلى إشعارات فورية من خادم Remail، وستتوفر في إصدار لاحق.",
+  "mset.pushNote": "يتحقق Camel Mail من البريد الجديد ما دام مفتوحًا أو يعمل في الخلفية. أما التنبيهات حين يكون Camel Mail مغلقًا تمامًا فتحتاج إلى إشعارات فورية من خادم Camel Mail، وستتوفر في إصدار لاحق.",
 
   // ---- أخطاء الخادم ----
   "err.bad_request": "في الطلب خطأ ما. راجع التفاصيل وحاول مجددًا.",
@@ -338,7 +338,7 @@ export const ar: Record<MessageKey, string> = {
   "err.account_locked": "قُفل هذا الحساب مؤقتًا بعد محاولات كثيرة. حاول لاحقًا.",
   "err.account_disabled": "تم إيقاف هذا الحساب. تواصل مع المسؤول.",
   "err.email_not_verified": "أكّد عنوان بريدك الإلكتروني أولًا، وابحث عن الرابط في بريدك الوارد.",
-  "err.email_taken": "يوجد حساب في Remail بهذا البريد الإلكتروني. سجّل الدخول بدلًا من ذلك.",
+  "err.email_taken": "يوجد حساب في Camel Mail بهذا البريد الإلكتروني. سجّل الدخول بدلًا من ذلك.",
   "err.weak_password": "اختر كلمة مرور أقوى: 10 أحرف على الأقل يصعب تخمينها.",
   "err.invalid_code": "الرمز غير صحيح أو انتهت صلاحيته. جرّب رمزًا جديدًا.",
   "err.invalid_token": "لم يعد هذا الرابط أو الرمز صالحًا. اطلب واحدًا جديدًا.",
@@ -347,11 +347,11 @@ export const ar: Record<MessageKey, string> = {
   "err.invite_required": "تحتاج إلى دعوة للانضمام إلى هذه المؤسسة.",
   "err.domain_not_allowed": "لا تسمح مؤسستك بنطاق البريد الإلكتروني هذا.",
   "err.provider_not_allowed": "لا تسمح مؤسستك بمزوّد البريد الإلكتروني هذا.",
-  "err.platform_not_allowed": "لا تسمح مؤسستك باستخدام Remail على هذا النوع من الأجهزة.",
-  "err.licence_expired": "انتهى ترخيص Remail الخاص بمؤسستك. تواصل مع المسؤول.",
-  "err.licence_invalid": "ترخيص Remail الخاص بمؤسستك غير صالح. تواصل مع المسؤول.",
-  "err.seat_limit": "لا توجد مقاعد شاغرة في Remail لدى مؤسستك. تواصل مع المسؤول.",
-  "err.unavailable": "يتعذّر على Remail الوصول إلى خادمه. تحقّق من اتصالك وحاول مجددًا.",
+  "err.platform_not_allowed": "لا تسمح مؤسستك باستخدام Camel Mail على هذا النوع من الأجهزة.",
+  "err.licence_expired": "انتهى ترخيص Camel Mail الخاص بمؤسستك. تواصل مع المسؤول.",
+  "err.licence_invalid": "ترخيص Camel Mail الخاص بمؤسستك غير صالح. تواصل مع المسؤول.",
+  "err.seat_limit": "لا توجد مقاعد شاغرة في Camel Mail لدى مؤسستك. تواصل مع المسؤول.",
+  "err.unavailable": "يتعذّر على Camel Mail الوصول إلى خادمه. تحقّق من اتصالك وحاول مجددًا.",
   "err.internal": "حدث خطأ في الخادم. حاول مجددًا بعد قليل.",
 
   // ---- phone app screens (m.*): views, lists, threads, search, sheets, toasts ----
@@ -488,7 +488,7 @@ export const ar: Record<MessageKey, string> = {
   "m.sched.editFailed": "تعذّر الفتح للتحرير",
   "m.sched.rescheduled": "تمت إعادة الجدولة إلى {when}",
   "m.sched.rescheduleFailed": "تعذّرت إعادة الجدولة",
-  "m.app.failed": "تعذّر تشغيل Remail: {error}",
+  "m.app.failed": "تعذّر تشغيل Camel Mail: {error}",
   "m.toast.undo": "تراجع",
   "m.toast.undoHint": "{message} (اضغط Z للتراجع)",
   "m.toast.nothingToUndo": "لا يوجد ما يمكن التراجع عنه",
@@ -576,7 +576,7 @@ export const ar: Record<MessageKey, string> = {
   "m.cal.prevMonth": "الشهر السابق",
   "m.cal.nextMonth": "الشهر التالي",
   "m.cal.connectTitle": "اربط تقويمك",
-  "m.cal.connectBody": "يزامن Remail تقويمات iCloud وFastmail وNextcloud وZoho وYahoo وغيرها من تقويمات CalDAV، وMicrosoft 365. ويمكنك أيضًا الاشتراك في أي تقويم عبر رابط iCal.",
+  "m.cal.connectBody": "يزامن Camel Mail تقويمات iCloud وFastmail وNextcloud وZoho وYahoo وغيرها من تقويمات CalDAV، وMicrosoft 365. ويمكنك أيضًا الاشتراك في أي تقويم عبر رابط iCal.",
   "m.cal.connect": "ربط تقويم",
   "m.cal.newEvent": "حدث جديد",
   "m.cal.view": "العرض",

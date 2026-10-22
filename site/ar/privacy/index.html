@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>سياسة الخصوصية | Camel Mail</title>
+<meta name="description" content="ما الذي يحفظه Camel Mail، وما الذي يبقى على جهازك، وكيف تُعامَل بيانات Google وMicrosoft والذكاء الاصطناعي.">
+<meta name="theme-color" content="#26231f">
+<link rel="canonical" href="https://mail.camelapp.si/ar/privacy/">
+<link rel="alternate" hreflang="en" href="https://mail.camelapp.si/privacy/">
+<link rel="alternate" hreflang="ar" href="https://mail.camelapp.si/ar/privacy/">
+<link rel="alternate" hreflang="x-default" href="https://mail.camelapp.si/privacy/">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/assets/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="preload" href="/assets/fonts/libre-caslon-text.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/amiri-regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/site.css">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Camel Mail">
+<meta property="og:title" content="سياسة الخصوصية | Camel Mail">
+<meta property="og:description" content="ما الذي يحفظه Camel Mail، وما الذي يبقى على جهازك، وكيف تُعامَل بيانات Google وMicrosoft والذكاء الاصطناعي.">
+<meta property="og:url" content="https://mail.camelapp.si/ar/privacy/">
+<meta property="og:image" content="https://mail.camelapp.si/assets/og-image.jpg">
+<meta property="og:locale" content="ar_AR">
+<meta property="og:locale:alternate" content="en_GB">
+<meta name="twitter:card" content="summary_large_image">
+</head>
+<body>
+<a class="skip" href="#main">تخطَّ إلى المحتوى</a>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/ar/" aria-label="الصفحة الرئيسية لـ Camel Mail"><img src="/assets/icon-192.png" alt="" width="36" height="36"><span lang="en" dir="ltr">Camel Mail</span></a>
+    <nav class="nav" aria-label="الرئيسية">
+      <a class="hide-narrow" href="/ar/#features">المزايا</a>
+      <a class="hide-narrow" href="/ar/privacy/">الخصوصية</a>
+      <a class="lang" href="/privacy/" lang="en" hreflang="en">English</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="doc-head">
+    <div class="wrap">
+      <h1>سياسة الخصوصية</h1>
+      <p>تسري اعتباراً من 22 أكتوبر 2026. تشمل هذه السياسة تطبيقات Camel Mail لأنظمة لينكس وويندوز وماك وأندرويد، وحساب Camel Mail المستضاف، وهذا الموقع.</p>
+    </div>
+  </div>
+  <div class="paper sheet">
+    <div class="wrap">
+      <aside class="toc">
+        <nav aria-labelledby="toc-title">
+          <h2 id="toc-title">في هذه الصفحة</h2>
+          <ol>
+          <li><a href="#short">باختصار</a></li>
+          <li><a href="#account">حسابك في Camel Mail</a></li>
+          <li><a href="#google">حسابات Google</a></li>
+          <li><a href="#other">Microsoft وصناديق البريد الأخرى</a></li>
+          <li><a href="#device">البريد والتقويم على جهازك</a></li>
+          <li><a href="#ai">المساعد الذكي</a></li>
+          <li><a href="#email">الرسائل التي نرسلها إليك</a></li>
+          <li><a href="#dont">ما لا نفعله</a></li>
+          <li><a href="#delete">حذف بياناتك</a></li>
+          <li><a href="#security">الأمان</a></li>
+          <li><a href="#changes">التغييرات على هذه السياسة</a></li>
+          <li><a href="#contact">التواصل معنا</a></li>
+          </ol>
+        </nav>
+      </aside>
+      <article class="prose">
+        <h2 id="short">باختصار</h2>
+<ul>
+  <li>ينتقل بريدك وتقويمك مباشرة بين جهازك ومزوّد بريدك، ويُخزَّن مؤقتاً على جهازك فقط.</li>
+  <li>يبقى تسجيل دخولك إلى Google وكل بيانات Gmail وتقويم Google على جهازك، ولا تصل أبداً إلى خوادم Camel Mail.</li>
+  <li>يحتفظ خادمنا بحسابك في Camel Mail وإعدادات التطبيق مشفّرةً، لتبقى أجهزتك متطابقة.</li>
+  <li>لا إعلانات ولا تتبّع ولا أدوات تحليل، ولا نبيع أي بيانات.</li>
+</ul>
+
+        <h2 id="account">حسابك في Camel Mail</h2>
+<p>عند إنشاء حساب في Camel Mail، تحفظ خدمتنا المستضافة ما يلي:</p>
+<ul>
+  <li>عنوان بريدك الإلكتروني؛</li>
+  <li>بصمة (hash) لكلمة مرورك مُنشأة بخوارزمية Argon2، ولا نحفظ كلمة المرور نفسها أبداً؛</li>
+  <li>إعدادات التحقق بخطوتين، إن فعّلته؛</li>
+  <li>قائمة الأجهزة والجلسات المسجّل دخولها إلى حسابك؛</li>
+  <li>إعدادات التطبيق: قائمة صناديق بريدك وأسماء خوادمها، والتواقيع، والقوالب، والتفضيلات، واشتراكات التقويم.</li>
+</ul>
+<p>تُحفَظ إعدادات التطبيق مشفّرةً بمفاتيح يديرها مشغّل الخدمة.</p>
+<p>بالنسبة لصناديق بريد IMAP غير التابعة لـ Google، تُحفَظ كلمة المرور أو كلمة مرور التطبيق التي تُدخلها مشفّرةً مع إعداداتك، حتى تتمكّن أجهزتك الأخرى من الاتصال بذلك الصندوق أيضاً. وينطبق الأمر نفسه على تسجيلات الدخول بحساب Microsoft. أما تسجيلات الدخول بحساب Google فلا تُحفَظ على خوادمنا أبداً، كما يوضّح القسم التالي.</p>
+<p>نستخدم هذه المعلومات لتشغيل حسابك فقط: لتسجيل دخولك، وإبقاء أجهزتك متطابقة، والحفاظ على أمان الخدمة.</p>
+
+        <h2 id="google">حسابات Google</h2>
+<p>عند إضافة حساب Google لاستخدام Gmail وتقويم Google، يطلب Camel Mail من Google هذه الأذونات:</p>
+<ul>
+  <li><code>https://mail.google.com/</code> لقراءة بريدك وإرساله وتنظيمه عبر IMAP وSMTP؛</li>
+  <li><code>https://www.googleapis.com/auth/calendar</code> لعرض تقاويمك وتعديلها؛</li>
+  <li><code>openid</code> و<code>email</code> لمعرفة حساب Google الذي سجّلت الدخول به.</li>
+</ul>
+<p>يبقى تسجيل دخولك إلى Google (الرموز التي تُصدرها Google للتطبيق) وكل بيانات Gmail وتقويم Google على جهازك، ولا تُرسَل إلى خوادم Camel Mail ولا تُخزَّن عليها ولا تمرّ عبرها أبداً. ويستخدم التطبيق هذه البيانات فقط ليعرض لك بريدك وتقاويمك ولينفّذ ما تطلبه، مثل إرسال رسالة أو أرشفة محادثة أو إضافة موعد.</p>
+<p>لا نستخدم بيانات Google للإعلانات، ولا نبيعها، ولا نسمح لأي شخص بقراءتها، ولا نستخدمها لتدريب نماذج الذكاء الاصطناعي.</p>
+<p>إذا شغّلت المساعد الذكي الاختياري وطلبت منه العمل على رسالة، فإن النص الذي تختار إرساله ينتقل من جهازك مباشرة إلى مزوّد الذكاء الاصطناعي الذي ضبطته، كما هو موضّح في قسم <a href="#ai">المساعد الذكي</a>.</p>
+<div class="callout">
+  <p lang="en" dir="ltr">Camel Mail's use and transfer to any other app of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
+  <p>سيلتزم Camel Mail في استخدام المعلومات التي يتلقّاها من واجهات Google البرمجية ونقلها إلى أي تطبيق آخر بـ<a href="https://developers.google.com/terms/api-services-user-data-policy">سياسة بيانات المستخدم لخدمات Google API</a>، بما في ذلك متطلبات الاستخدام المحدود.</p>
+</div>
+<p>يمكنك إلغاء وصول Camel Mail إلى حسابك في Google في أي وقت من <a class="url" href="https://myaccount.google.com/permissions" dir="ltr">myaccount.google.com/permissions</a>.</p>
+
+        <h2 id="other">Microsoft وصناديق البريد الأخرى</h2>
+<p>عند تسجيل الدخول بحساب Microsoft ‏(Outlook.com أو Hotmail أو Live أو Microsoft&nbsp;365)، يتصل جهازك مباشرة بـ Microsoft للوصول إلى بريدك وتقاويمك. ويُحفَظ تسجيل دخولك إلى Microsoft مشفّراً في حسابك في Camel Mail حتى تتمكّن أجهزتك الأخرى من الاتصال أيضاً.</p>
+<p>أما أي صندوق بريد آخر، فيتصل جهازك مباشرة بخوادم IMAP وSMTP التي تُدخلها. ويجلب جهازك كذلك تقاويم CalDAV وروابط iCal مباشرة.</p>
+
+        <h2 id="device">البريد والتقويم على جهازك</h2>
+<p>يُنزَّل محتوى البريد، بما فيه المرفقات، من مزوّدك إلى جهازك ويُخزَّن مؤقتاً على ذلك الجهاز فقط، ولا يُنسَخ إلى خوادم Camel Mail. وعند حذف صندوق بريد من التطبيق تُحذَف بياناته المحلية.</p>
+
+        <h2 id="ai">المساعد الذكي</h2>
+<p>المساعد الذكي متوقف افتراضياً. فإذا شغّلته بمفتاح API خاص بك لدى مزوّد متوافق مع OpenAI أو Anthropic، فإن النص الذي تختار إرساله، كرسالة تطلب تلخيصها، ينتقل من جهازك مباشرة إلى مزوّد الذكاء الاصطناعي الذي ضبطته، وعند طلبك فقط، ولا يمرّ عبر خوادم Camel Mail. وتنطبق شروط ذلك المزوّد وسياسة خصوصيته على ما ترسله إليه.</p>
+
+        <h2 id="email">الرسائل التي نرسلها إليك</h2>
+<p>نرسل إليك رسائل لتأكيد حسابك ولإعادة تعيين كلمة المرور، عبر مزوّد خدمة توصيل البريد الإلكتروني الذي نتعامل معه.</p>
+
+        <h2 id="dont">ما لا نفعله</h2>
+<ul>
+  <li>لا نعرض إعلانات.</li>
+  <li>لا نستخدم أدوات تتبّع أو تحليل في التطبيق ولا في هذا الموقع. ولا يضع هذا الموقع ملفات تعريف ارتباط (كوكيز)، ولا يحمّل أي شيء من مواقع أخرى.</li>
+  <li>لا نبيع بياناتك.</li>
+</ul>
+
+        <h2 id="delete">حذف بياناتك</h2>
+<ul>
+  <li>يمكنك حذف أي صندوق بريد من التطبيق في أي وقت، فتُحذَف بياناته المحلية.</li>
+  <li>يمكنك إلغاء وصول Camel Mail إلى حسابك في Google من <a class="url" href="https://myaccount.google.com/permissions" dir="ltr">myaccount.google.com/permissions</a>.</li>
+  <li>يمكنك أن تطلب منا حذف حسابك في Camel Mail بمراسلتنا على <a href="mailto:support@camelapp.si" dir="ltr">support@camelapp.si</a>.</li>
+</ul>
+
+        <h2 id="security">الأمان</h2>
+<p>يتواصل التطبيق مع خدمتنا عبر اتصالات مشفّرة. ولا تُحفَظ كلمات مرور الحسابات إلا كبصمات Argon2، وتُحفَظ إعدادات التطبيق مشفّرةً، بما فيها كلمات مرور صناديق البريد وتسجيلات الدخول بحساب Microsoft.</p>
+
+        <h2 id="changes">التغييرات على هذه السياسة</h2>
+<p>إذا غيّرنا هذه السياسة، فسننشر النسخة الجديدة في هذه الصفحة مع تاريخ سريان جديد.</p>
+
+        <h2 id="contact">التواصل معنا</h2>
+<p>Camel Mail هو المسؤول عن التطبيق والخدمة المستضافة. لأي سؤال أو طلب يخصّ بياناتك: <a href="mailto:support@camelapp.si" dir="ltr">support@camelapp.si</a>.</p>
+
+      </article>
+    </div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="foot-brand">
+      <img src="/assets/icon-192.png" alt="" width="52" height="52" loading="lazy">
+      <p><b lang="en" dir="ltr">Camel Mail</b>البريد والتقويم لأنظمة لينكس وويندوز وماك وأندرويد.</p>
+    </div>
+    <ul class="foot-links">
+      <li><a href="/ar/privacy/">سياسة الخصوصية</a></li>
+      <li><a href="/ar/terms/">شروط الخدمة</a></li>
+      <li><a href="mailto:support@camelapp.si" dir="ltr">support@camelapp.si</a></li>
+      <li><a href="/privacy/" lang="en" hreflang="en">English</a></li>
+    </ul>
+  </div>
+</footer>
+</body>
+</html>

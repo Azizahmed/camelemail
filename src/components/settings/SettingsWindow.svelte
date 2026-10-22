@@ -205,7 +205,7 @@
   async function removeAccount(a: Account) {
     const r = await confirmDialog({
       title: "Remove account?",
-      message: `Remove ${a.email} from Remail? Its downloaded mail will be deleted from this computer. Nothing is deleted on the server.`,
+      message: `Remove ${a.email} from Camel Mail? Its downloaded mail will be deleted from this computer. Nothing is deleted on the server.`,
       confirmLabel: "Remove",
       danger: true,
     });
@@ -668,7 +668,7 @@
         {/snippet}
         {@render row("Mark as read when opened", null, readCtl)}
         {#snippet readCtl()}<Toggle label="Mark as read when opened" checked={settings!.markReadOnOpen} onchange={(v) => update({ markReadOnOpen: v })} />{/snippet}
-        {@render row("Load remote images", "Remote images can reveal when you open an email. When off, Remail asks per message.", imgCtl)}
+        {@render row("Load remote images", "Remote images can reveal when you open an email. When off, Camel Mail asks per message.", imgCtl)}
         {#snippet imgCtl()}<Toggle label="Load remote images" checked={settings!.loadRemoteImages} onchange={(v) => update({ loadRemoteImages: v })} />{/snippet}
 
         {#if !embedded}
@@ -684,7 +684,7 @@
           {@render row("Keep running in the tray when the window is closed", "Needed for Send Later and snooze reminders while the window is closed.", trayCtl)}
           {#snippet trayCtl()}<Toggle label="Keep running in the tray" checked={settings!.closeToTray} onchange={(v) => update({ closeToTray: v })} />{/snippet}
         {/if}
-        {@render row("Sync interval", "How often Remail checks for new mail.", syncCtl)}
+        {@render row("Sync interval", "How often Camel Mail checks for new mail.", syncCtl)}
         {#snippet syncCtl()}
           <Select width={160} label="Sync interval" value={settings!.syncIntervalSeconds} options={[{ value: 15, label: "15 seconds" }, { value: 30, label: "30 seconds" }, { value: 60, label: "1 minute" }, { value: 300, label: "5 minutes" }]} onchange={(v) => update({ syncIntervalSeconds: v })} />
         {/snippet}
@@ -811,8 +811,8 @@
       {:else if section === "about"}
         <h1>About</h1>
         <div class="about">
-          <img class="app-icon" src="/brand/remail-mark.png" alt="" />
-          <div class="about-name">Remail</div>
+          <img class="app-icon" src="/brand/camel-mail-icon.png" alt="" />
+          <div class="about-name">Camel Mail</div>
           <div class="about-ver">{info ? "Version " + info.version : ""}</div>
         </div>
         <p class="intro center">A fast, private email client written in Rust.</p>
@@ -820,7 +820,7 @@
           {@render row("Data folder", null, dirCtl)}
           {#snippet dirCtl()}<span class="path selectable">{info!.dataDir}</span>{/snippet}
         {/if}
-        <p class="note">Scheduled emails are sent by Remail on this {embedded ? "phone" : "computer"}, so Remail needs to be running at the scheduled time.</p>
+        <p class="note">Scheduled emails are sent by Camel Mail on this {embedded ? "phone" : "computer"}, so Camel Mail needs to be running at the scheduled time.</p>
       {/if}
     </div>
   </main>

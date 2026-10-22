@@ -399,7 +399,7 @@
 {#if startupError}
   <div class="center">
     <div class="err-card">
-      <b>Remail couldn't start</b>
+      <b>Camel Mail couldn't start</b>
       <span class="selectable">{startupError}</span>
     </div>
   </div>
@@ -438,7 +438,7 @@
               <ThreadView bind:this={threadView} layout="pane" />
             {:else}
               <div class="placeholder">
-                <img src="/brand/remail-mark.png" alt="" />
+                <img src="/brand/camel-mail-icon.png" alt="" />
                 <div class="ph-title">{mail.threads.length ? "Select an email to read" : "Nothing to read here"}</div>
                 <div class="ph-hint">
                   {@render keys("next")} {@render keys("prev")} move between emails{#if bindings("layout")[0]} · {@render keys("layout")} full-width list{/if}

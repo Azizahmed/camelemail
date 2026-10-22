@@ -107,7 +107,7 @@
   <div class="scroll" bind:this={scroller} onscroll={onScroll}>
     {#if chat.items.length === 0}
       <div class="empty">
-        <img src="/brand/remail-mark.png" alt="" />
+        <img src="/brand/camel-mail-icon.png" alt="" />
         <p>Ask about your email, or have the assistant find, summarize and draft messages for you.</p>
         <div class="suggestions">
           {#each SUGGESTIONS as s (s)}

@@ -120,7 +120,7 @@ impl Config {
             smtp_url: None,
             sndr_api_key: None,
             sndr_url: "https://api.sndr.sh/v1/send".into(),
-            mail_from: "Remail <no-reply@localhost>".into(),
+            mail_from: "Camel Mail <no-reply@localhost>".into(),
             dev_mail: false,
             argon2: Argon2Cost::default(),
             lockout_base: Duration::from_secs(60),
