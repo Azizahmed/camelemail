@@ -1,12 +1,18 @@
-# Builds Remail for Linux (.deb, AppImage), Windows (installer .exe, .msi)
+# Builds Camel Mail for Linux (.deb, AppImage), Windows (installer .exe, .msi)
 # and macOS (universal .dmg for Apple silicon and Intel).
 #
-# Run it from the Actions tab ("Run workflow"), or push a tag like v0.1.9:
-# a tag also puts the files on a draft GitHub release.
+# Run it from the Actions tab ("Run workflow", optionally for one system only),
+# or push a tag like v0.1.9: a tag also puts the files on a draft GitHub release.
 name: Build
 
 on:
   workflow_dispatch:
+    inputs:
+      only:
+        description: "Build for"
+        type: choice
+        options: [all, linux, windows, macos]
+        default: all
   push:
     tags: ["v*"]
 
@@ -19,20 +25,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - id: pick
+        env:
+          ONLY: ${{ inputs.only || 'all' }}
+        run: |
+          all='[{"name":"linux","os":"ubuntu-22.04","args":""},{"name":"windows","os":"windows-latest","args":""},{"name":"macos","os":"macos-latest","args":"--target universal-apple-darwin"}]'
+          echo "matrix=$(echo "$all" | jq -c --arg only "$ONLY" 'map(select($only == "all" or .name == $only))')" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: plan
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: linux
-            os: ubuntu-22.04
-            args: ""
-          - name: windows
-            os: windows-latest
-            args: ""
-          - name: macos
-            os: macos-latest
-            args: "--target universal-apple-darwin"
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     steps:
@@ -69,13 +79,13 @@ jobs:
           args: ${{ matrix.args }}
           # Only tags make a (draft) release; manual runs keep the files as artifacts.
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-          releaseName: Remail ${{ github.ref_name }}
+          releaseName: Camel Mail ${{ github.ref_name }}
           releaseDraft: true
 
       - name: Keep the installers
         uses: actions/upload-artifact@v4
         with:
-          name: remail-${{ matrix.name }}
+          name: camel-mail-${{ matrix.name }}
           if-no-files-found: error
           path: |
             target/release/bundle/deb/*.deb
