@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Side drawer: mailboxes, views, Smart Inbox buckets, folders, calendar.
+  // Side drawer: mailboxes, views, Smart Inbox buckets, folders; Settings, Calendar and the assistant at the foot.
   import { CalendarDays, Check, ChevronDown, MailMinus, Settings, Sparkles } from "@lucide/svelte";
   import { t } from "../lib/i18n.svelte";
   import { accountName, mail, scheduledCount, unreadFor } from "../lib/mail.svelte";
@@ -125,14 +125,14 @@
     {/each}
 
     <div class="sep"></div>
-    <button class="item" onclick={() => open(() => push({ name: "calendar" }))}><CalendarDays size={20} strokeWidth={1.5} /><span class="label">{t("m.view.calendar")}</span></button>
     <button class="item" onclick={() => open(() => push({ name: "unsubscribe" }))}><MailMinus size={20} strokeWidth={1.5} /><span class="label">{t("m.drawer.subscriptions")}</span></button>
   </div>
 
   <div class="foot">
     <button class="m-icon-btn" aria-label={t("mset.title")} onclick={() => open(() => onsettings())}><Settings size={21} strokeWidth={1.5} /></button>
+    <button class="m-primary soft pill" onclick={() => open(() => push({ name: "calendar" }))}><CalendarDays size={16} strokeWidth={1.6} /> {t("m.view.calendar")}</button>
     {#if mail.ai.ready}
-      <button class="m-primary soft pill" onclick={() => open(() => push({ name: "assistant" }))}><Sparkles size={16} strokeWidth={1.6} /> {t("m.drawer.assistant")}</button>
+      <button class="m-icon-btn" aria-label={t("m.drawer.assistant")} onclick={() => open(() => push({ name: "assistant" }))}><Sparkles size={21} strokeWidth={1.5} /></button>
     {/if}
   </div>
 </aside>
