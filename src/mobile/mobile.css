@@ -402,3 +402,14 @@ html.mobile .message .line1 .email,
 html.mobile .message .tools .icon-btn:first-child {
   display: none;
 }
+
+/* Message bodies on a phone use the whole width: the desktop indents them
+   under the sender's name (past the avatar), which on a 360dp screen left a
+   wide empty strip on one side and pushed wide emails off the other. */
+html.mobile .message .body,
+html.mobile .message .details,
+html.mobile .message .privacy,
+html.mobile .message .attachments {
+  margin-left: 0;
+  margin-right: 0;
+}

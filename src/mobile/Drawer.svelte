@@ -1,10 +1,11 @@
 <script lang="ts">
   // Side drawer: mailboxes, views, Smart Inbox buckets, folders, calendar.
-  import { CalendarDays, MailMinus, Plus, Settings, Sparkles } from "@lucide/svelte";
+  import { CalendarDays, Check, ChevronDown, MailMinus, Settings, Sparkles } from "@lucide/svelte";
   import { t } from "../lib/i18n.svelte";
   import { accountName, mail, scheduledCount, unreadFor } from "../lib/mail.svelte";
   import { L, type Label } from "../lib/types";
   import { back, push } from "./nav.svelte";
+  import Sheet from "./Sheet.svelte";
   import { bucketName, currentView, openView, showView, SMART_BUCKETS, viewIcon, viewName } from "./views.svelte";
 
   let { onsettings }: { onsettings: (section?: string) => void } = $props();
@@ -52,6 +53,16 @@
     showView(L.INBOX, id);
   }
 
+  // The mailbox picker under the title: "All inboxes" or one mailbox.
+  let pickerOpen = $state(false);
+  let picker: Sheet | undefined = $state();
+  const current = $derived(acc ? mail.accounts.find((a) => a.id === acc) : undefined);
+
+  async function choose(id: string | null) {
+    await picker?.close();
+    await pickAccount(id);
+  }
+
   const fmt = (n: number) => (n > 99 ? "99+" : String(n));
 </script>
 
@@ -60,14 +71,11 @@
   <h2>Camel Mail</h2>
 
   {#if mail.accounts.length > 1}
-    <div class="accounts" role="tablist" aria-label={t("m.drawer.mailboxes")}>
-      <button class="acc" class:on={acc === null} role="tab" aria-selected={acc === null} onclick={() => pickAccount(null)}>{t("m.drawer.allInboxes")}</button>
-      {#each mail.accounts as a (a.id)}
-        <button class="acc" class:on={acc === a.id} role="tab" aria-selected={acc === a.id} onclick={() => pickAccount(a.id)}>
-          <span class="dot" style:background={a.color}></span>{accountName(a)}
-        </button>
-      {/each}
-    </div>
+    <button class="mailbox" aria-haspopup="dialog" onclick={() => (pickerOpen = true)}>
+      {#if current}<span class="dot" style:background={current.color}></span>{/if}
+      <span class="label"><bdi>{current ? accountName(current) : t("m.drawer.allInboxes")}</bdi></span>
+      <ChevronDown size={16} strokeWidth={1.6} />
+    </button>
   {/if}
 
   <div class="items">
@@ -112,10 +120,23 @@
     {#if mail.ai.ready}
       <button class="m-primary soft pill" onclick={() => open(() => push({ name: "assistant" }))}><Sparkles size={16} strokeWidth={1.6} /> {t("m.drawer.assistant")}</button>
     {:else}
-      <button class="m-primary soft pill" onclick={() => open(() => onsettings("accounts"))}><Plus size={16} strokeWidth={1.6} /> {t("m.drawer.addMailbox")}</button>
+      <button class="m-primary soft pill" onclick={() => open(() => push({ name: "calendar" }))}><CalendarDays size={16} strokeWidth={1.6} /> {t("m.view.calendar")}</button>
     {/if}
   </div>
 </aside>
+
+<Sheet bind:this={picker} bind:open={pickerOpen} title={t("m.drawer.mailboxes")}>
+  <button class="m-sheet-item" class:on={acc === null} onclick={() => choose(null)}>
+    <span class="all-dot"></span><span class="label">{t("m.drawer.allInboxes")}</span>
+    {#if acc === null}<Check size={18} strokeWidth={1.8} />{/if}
+  </button>
+  {#each mail.accounts as a (a.id)}
+    <button class="m-sheet-item" class:on={acc === a.id} onclick={() => choose(a.id)}>
+      <span class="dot" style:background={a.color}></span><span class="label"><bdi>{accountName(a)}</bdi></span>
+      {#if acc === a.id}<Check size={18} strokeWidth={1.8} />{/if}
+    </button>
+  {/each}
+</Sheet>
 
 <style>
   .drawer {
@@ -142,35 +163,43 @@
     font-weight: 600;
     letter-spacing: 0.2px;
   }
-  .accounts {
+  /* The mailbox picker right under the title. */
+  .mailbox {
+    align-self: flex-start;
     display: flex;
-    gap: 7px;
-    overflow-x: auto;
-    padding: 0 15px 10px;
-    scrollbar-width: none;
-  }
-  .acc {
-    flex: none;
-    display: inline-flex;
     align-items: center;
-    gap: 7px;
-    height: 30px;
-    padding: 0 11px;
+    gap: 8px;
+    max-width: calc(100% - 32px);
+    height: 34px;
+    margin: -10px 16px 12px;
+    padding: 0 10px 0 12px;
     border: 1px solid var(--m-separator);
-    border-radius: 15px;
+    border-radius: 17px;
     background: transparent;
     color: var(--m-text);
     font: inherit;
-    font-size: 12px;
+    font-size: 13px;
+    text-align: start;
   }
-  .acc.on {
+  .mailbox:active {
     background: var(--m-pill);
-    border-color: transparent;
   }
-  .dot {
-    width: 7px;
-    height: 7px;
+  .mailbox .label {
+    flex: 0 1 auto;
+  }
+  .mailbox :global(svg) {
+    flex: none;
+    color: var(--m-text-2);
+  }
+  .dot,
+  .all-dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
+  }
+  .all-dot {
+    border: 1.5px solid var(--m-text-2);
   }
   .items {
     flex: 1;

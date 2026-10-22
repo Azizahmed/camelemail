@@ -54,6 +54,7 @@ handlers![
     set_system_bars,
     dismiss_text_menu,
     notification_permission,
+    take_notification_open,
     get_settings,
     set_settings,
     provider_presets,
@@ -413,6 +414,12 @@ async fn notification_permission(app: AppHandle, ask: bool) -> R<String> {
         _ => "prompt",
     }
     .into())
+}
+
+/// What the last click on a notification should open, once (see notify.rs).
+#[tauri::command]
+fn take_notification_open(app: AppHandle) -> Option<crate::notify::OpenTarget> {
+    crate::notify::take_pending(&app)
 }
 
 /// Phones: write an attachment to the app's cache, where the native side can

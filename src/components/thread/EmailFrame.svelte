@@ -2,13 +2,22 @@
   import { onDestroy } from "svelte";
   import { applyDirections, arabicFontFaces, fixFinalMarks, useArabicFont } from "../../lib/bidi";
   import { escapeHtml } from "../../lib/format";
+  import { isMobile } from "../../lib/platform";
 
   let {
     html,
     text,
     allowRemote = false,
     collapseQuotes = true,
-  }: { html: string | null; text: string | null; allowRemote?: boolean; collapseQuotes?: boolean } = $props();
+    fitWidth = isMobile,
+  }: {
+    html: string | null;
+    text: string | null;
+    allowRemote?: boolean;
+    collapseQuotes?: boolean;
+    /** Shrink emails wider than the frame (fixed-width tables, min-widths) to fit it. */
+    fitWidth?: boolean;
+  } = $props();
 
   let frame: HTMLIFrameElement | undefined = $state();
   let height = $state(40);
@@ -68,6 +77,26 @@
   let lastOver = 0;
   let recheck = 0;
 
+  /** Smallest zoom for wide emails; anything wider still scrolls sideways. */
+  const MIN_ZOOM = 0.35;
+
+  /** Zoom a wide email out until it fits the frame's width, as phone mail
+   *  apps do: text keeps its layout instead of running off the right edge.
+   *  The zoom is worked out from the email's own width at 100% each time, so
+   *  calling this again (images arrived, frame resized) settles at once. */
+  function fit(d: Document) {
+    if (!fitWidth || !d.body) return;
+    const root = d.documentElement;
+    const width = root.clientWidth;
+    if (width === 0) return;
+    const before = d.body.style.zoom;
+    d.body.style.zoom = "";
+    const natural = root.scrollWidth;
+    const zoom = natural > width + 1 ? Math.max(MIN_ZOOM, Math.floor((width / natural) * 1000) / 1000) : 1;
+    d.body.style.zoom = zoom < 1 ? String(zoom) : "";
+    if (d.body.style.zoom !== before) lastOver = 0;
+  }
+
   /** Fit the frame to the email's content, growing and shrinking. */
   function measure() {
     const d = frame?.contentDocument;
@@ -113,8 +142,12 @@
 
     // Follows the height as images without a size arrive, and on resize.
     resized?.disconnect();
-    resized = new ResizeObserver(() => measure());
+    resized = new ResizeObserver(() => {
+      fit(d);
+      measure();
+    });
     resized.observe(d.body);
+    fit(d);
     measure();
   }
 

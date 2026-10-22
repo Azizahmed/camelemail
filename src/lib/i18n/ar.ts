@@ -419,7 +419,6 @@ export const ar: Record<MessageKey, string> = {
   "m.drawer.allInboxes": "كل صناديق الوارد",
   "m.drawer.subscriptions": "الاشتراكات",
   "m.drawer.assistant": "مساعد الذكاء الاصطناعي",
-  "m.drawer.addMailbox": "إضافة صندوق بريد",
   "m.row.noSender": "(بلا مرسل)",
   "m.row.noSubject": "(بلا موضوع)",
   "m.row.draft": "مسودة",

@@ -417,7 +417,6 @@ export const en = {
   "m.drawer.allInboxes": "All inboxes",
   "m.drawer.subscriptions": "Subscriptions",
   "m.drawer.assistant": "AI assistant",
-  "m.drawer.addMailbox": "Add mailbox",
   "m.row.noSender": "(No sender)",
   "m.row.noSubject": "(No subject)",
   "m.row.draft": "Draft",

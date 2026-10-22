@@ -267,3 +267,20 @@ async fn google_app_from_the_environment() {
     assert_eq!(remail_server::orgs::config(&s.db, &s.state.env, &org).await.unwrap().0, v);
     s.finish().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn microsoft_app_from_the_environment() {
+    let Some(s) = start_with(Mode::Hosted, |c| c.microsoft_client_id = Some("11111111-2222-3333-4444-555555555555".into())).await else { return };
+    let t = token(&s.new_user("ms@example.com", PASSWORD).await);
+    let p = s.get("/providers", Some(&t)).await;
+    assert_eq!(p.body[1]["kind"], "microsoft");
+    assert_eq!(p.body[1]["enabled"], true);
+    assert_eq!(p.body[1]["oauth"]["clientId"], "11111111-2222-3333-4444-555555555555");
+    assert_eq!(p.body[1]["oauth"]["tenant"], "common");
+    // A restart with the same values saves nothing new.
+    let org = remail_server::orgs::by_slug(&s.db, "public").await.unwrap().unwrap();
+    let v = remail_server::orgs::config(&s.db, &s.state.env, &org).await.unwrap().0;
+    remail_server::orgs::startup(&s.state.cfg, &s.db, &s.state.env, false).await.unwrap();
+    assert_eq!(remail_server::orgs::config(&s.db, &s.state.env, &org).await.unwrap().0, v);
+    s.finish().await;
+}

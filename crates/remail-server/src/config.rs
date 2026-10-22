@@ -92,6 +92,11 @@ pub struct Config {
     /// Google directly (an installed-app secret isn't confidential).
     pub google_client_id: Option<String>,
     pub google_client_secret: Option<String>,
+    /// Hosted: the Microsoft Entra app (public client, no secret) the public
+    /// org signs Outlook / Microsoft 365 mail and calendars in with, and its
+    /// tenant (`common` = personal and work accounts).
+    pub microsoft_client_id: Option<String>,
+    pub microsoft_tenant: Option<String>,
 }
 
 /// Issuer keys compiled in with `REMAIL_LICENCE_PUBKEYS=<b64url>,<b64url>`.
@@ -133,6 +138,8 @@ impl Config {
             first_org_name: "My organisation".into(),
             google_client_id: None,
             google_client_secret: None,
+            microsoft_client_id: None,
+            microsoft_tenant: None,
         }
     }
 
@@ -174,6 +181,8 @@ impl Config {
         }
         c.google_client_id = env("REMAIL_GOOGLE_CLIENT_ID");
         c.google_client_secret = env("REMAIL_GOOGLE_CLIENT_SECRET");
+        c.microsoft_client_id = env("REMAIL_MICROSOFT_CLIENT_ID");
+        c.microsoft_tenant = env("REMAIL_MICROSOFT_TENANT");
         Ok(c)
     }
 }

@@ -7,6 +7,7 @@
 mod commands;
 #[cfg(mobile)]
 mod mobile;
+mod notify;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,8 +25,8 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 #[cfg(desktop)]
 use tauri::WebviewUrl;
+use notify::OpenTarget;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewWindowBuilder, WindowEvent};
-use tauri_plugin_notification::NotificationExt;
 
 pub struct AppState {
     pub engine: Engine,
@@ -72,34 +73,33 @@ impl UiSink {
         self.app.try_state::<AppState>().map(|s| s.engine.settings()).unwrap_or_default()
     }
 
-    fn notify(&self, title: &str, body: &str) {
-        let builder = self.app.notification().builder().title(title).body(body);
-        // Android: Remail's status-bar icon (res/drawable/ic_stat_remail), and
-        // the expanded text shown when a notification is opened up.
-        #[cfg(mobile)]
-        let builder = builder.icon("ic_stat_remail").icon_color("#2C3D66").large_body(body);
-        let _ = builder.show();
+    /// A click on the notification opens `open` (see notify.rs).
+    fn notify(&self, title: &str, body: &str, open: Option<OpenTarget>) {
+        notify::show(&self.app, title, body, open.as_ref());
     }
 }
 
 impl EventSink for UiSink {
     fn emit(&self, event: EngineEvent) {
         match &event {
-            EngineEvent::NewMail { messages, .. } if self.settings().notifications && !self.main_focused() => {
+            EngineEvent::NewMail { account_id, messages } if self.settings().notifications && !self.main_focused() => {
                 if messages.len() > 3 {
-                    self.notify("Camel Mail", &format!("{} new emails", messages.len()));
+                    let inbox = OpenTarget::Inbox { account_id: account_id.clone() };
+                    self.notify("Camel Mail", &format!("{} new emails", messages.len()), Some(inbox));
                 } else {
                     for m in messages {
                         let subject = if m.subject.is_empty() { "(No subject)" } else { m.subject.as_str() };
-                        self.notify(&m.from.display(), subject);
+                        let thread = OpenTarget::Thread { account_id: m.account_id.clone(), thread_id: m.thread_id.clone() };
+                        self.notify(&m.from.display(), subject, Some(thread));
                     }
                 }
             }
-            EngineEvent::SnoozeWoke { subject, .. } if self.settings().notify_on_snooze_wake && !self.main_focused() => {
-                self.notify("Snoozed email is back", subject);
+            EngineEvent::SnoozeWoke { account_id, thread_id, subject } if self.settings().notify_on_snooze_wake && !self.main_focused() => {
+                let thread = OpenTarget::Thread { account_id: account_id.clone(), thread_id: thread_id.clone() };
+                self.notify("Snoozed email is back", subject, Some(thread));
             }
             EngineEvent::SendFailed { subject, error, .. } if !self.main_focused() => {
-                self.notify(&format!("Couldn't send \"{subject}\""), error);
+                self.notify(&format!("Couldn't send \"{subject}\""), error, None);
             }
             EngineEvent::MailboxChanged { .. } => self.tray.request(),
             EngineEvent::OpenCompose { draft_id } => {
@@ -117,7 +117,7 @@ impl EventSink for UiSink {
                     format!("In {} h {} min", mins / 60, mins % 60)
                 };
                 let body = if location.is_empty() { when } else { format!("{when} · {location}") };
-                self.notify(if summary.is_empty() { "Event" } else { summary }, &body);
+                self.notify(if summary.is_empty() { "Event" } else { summary }, &body, Some(OpenTarget::Calendar { start_ms: *start_ms }));
             }
             _ => {}
         }
@@ -431,6 +431,8 @@ pub fn run() {
             // The main window is built here (not from the config) to attach the link handler.
             let main = app.config().app.windows.iter().find(|w| w.label == "main").cloned().expect("main window in tauri.conf.json");
             WebviewWindowBuilder::from_config(&handle, &main)?.on_new_window(links_open_outside(handle.clone())).build()?;
+            // Before the engine starts: clicks on notifications open what they're about.
+            notify::init(&handle);
             // REMAIL_DATA_DIR selects a separate profile (testing, portable
             // installs); such profiles keep credentials in a private file
             // instead of the system keyring.

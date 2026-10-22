@@ -4,17 +4,20 @@
   // list (see nav.svelte.ts); compose and settings, which are windows on the
   // desktop, arrive as `mobile-open-compose` / `mobile-open-settings` events.
   import { invoke } from "@tauri-apps/api/core";
+  import { onBackButtonPress } from "@tauri-apps/api/app";
   import { listen } from "@tauri-apps/api/event";
+  import type { PluginListener } from "@tauri-apps/api/core";
   import { onMount } from "svelte";
   import { api } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
-  import { initMail, mail } from "../lib/mail.svelte";
+  import { initMail, key, mail } from "../lib/mail.svelte";
+  import { onNotificationOpen, openMailTarget, type NotificationTarget } from "../lib/notify-open";
   import { dismissStaleTextMenu } from "../lib/platform";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import Toasts from "../components/Toasts.svelte";
   import Drawer from "./Drawer.svelte";
   import MailHome from "./MailHome.svelte";
-  import { initNav, nav, push } from "./nav.svelte";
+  import { back, initNav, nav, popTo, push, replaceTop, top } from "./nav.svelte";
 
   let failed = $state("");
 
@@ -22,6 +25,46 @@
     if (section && section !== "home") push({ name: "settingsPage", section });
     else push({ name: "settings" });
   }
+
+  /** A tapped notification: its conversation, the inbox or the calendar. */
+  function openFromNotification(t: NotificationTarget) {
+    if (t.kind === "calendar") {
+      if (top()?.name !== "calendar") pushUntapped({ name: "calendar" });
+      return;
+    }
+    const was = mail.open && key(mail.open);
+    openMailTarget(t);
+    if (t.kind === "inbox") return popTo(0);
+    // The thread screen keeps the conversation it opened with: a new one replaces it.
+    if (top()?.name !== "thread") pushUntapped({ name: "thread" });
+    else if (was !== key(t)) replaceTop({ name: "thread" });
+  }
+
+  // The web view's back button skips history entries a page added without a
+  // tap on it (and leaves the app instead), which a screen opened by a
+  // notification is. Until the stack is back to the mail list, back goes
+  // through the page.
+  let backHook: PluginListener | null = null;
+  let hooking = false;
+  function pushUntapped(s: Parameters<typeof push>[0]) {
+    push(s);
+    if (backHook || hooking) return;
+    hooking = true;
+    onBackButtonPress(() => (nav.stack.length ? void back() : unhook()))
+      .then((l) => {
+        backHook = l;
+        if (!nav.stack.length) unhook();
+      })
+      .catch(() => {})
+      .finally(() => (hooking = false));
+  }
+  function unhook() {
+    void backHook?.unregister();
+    backHook = null;
+  }
+  $effect(() => {
+    if (nav.stack.length === 0) unhook();
+  });
 
   onMount(() => {
     document.documentElement.classList.add("mobile");
@@ -34,7 +77,11 @@
         await initMail();
       } catch (e) {
         failed = t("m.app.failed", { error: String(e) });
+        return;
       }
+      // Also takes a tap that started the app.
+      const un2 = await onNotificationOpen(openFromNotification).catch(() => null);
+      if (un2) un.push(un2);
     })();
     // The status and navigation bars follow the theme.
     const bars = () => {

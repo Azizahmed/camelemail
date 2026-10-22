@@ -220,6 +220,7 @@ pub async fn startup(cfg: &Config, db: &PgPool, env: &Envelope, create_first_org
                 }
             };
             apply_google_app(cfg, db, env, &public).await?;
+            apply_microsoft_app(cfg, db, env, &public).await?;
             // Until the service has an owner, every start offers a fresh
             // one-time owner invite (an invite needs no e-mail delivery).
             if create_first_org {
@@ -270,6 +271,24 @@ async fn apply_google_app(cfg: &Config, db: &PgPool, env: &Envelope, org: &Org) 
     if !secrets.google_client_secret.is_empty() {
         secrets.google_client_secret.clear();
         set_secrets(db, env, &org.id, &secrets).await?;
+    }
+    Ok(())
+}
+
+/// Hosted: the Microsoft app from `REMAIL_MICROSOFT_CLIENT_ID` (and
+/// `REMAIL_MICROSOFT_TENANT`, default `common`) goes into the public org,
+/// saved only when it changed. One sign-in gives mail and calendars.
+async fn apply_microsoft_app(cfg: &Config, db: &PgPool, env: &Envelope, org: &Org) -> Result<()> {
+    let Some(id) = &cfg.microsoft_client_id else { return Ok(()) };
+    let tenant = cfg.microsoft_tenant.clone().unwrap_or_else(|| "common".into());
+    let (_, mut config) = config(db, env, org).await?;
+    let app = &config.providers.microsoft_app;
+    if app.client_id != *id || app.tenant != tenant || !config.providers.microsoft {
+        config.providers.microsoft_app.client_id = id.clone();
+        config.providers.microsoft_app.tenant = tenant;
+        config.providers.microsoft = true;
+        set_config(db, env, &org.id, &config, "startup").await?;
+        tracing::info!("Microsoft sign-in set up for the public org");
     }
     Ok(())
 }

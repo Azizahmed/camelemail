@@ -86,3 +86,32 @@ pub fn dismiss_text_menu<R: Runtime>(app: &AppHandle<R>) {
         let _ = n.run_mobile_plugin::<serde_json::Value>("dismissTextMenu", ());
     }
 }
+
+#[derive(Serialize)]
+struct RegisterListener {
+    event: &'static str,
+    handler: tauri::ipc::Channel<serde_json::Value>,
+}
+
+/// Run `handler` whenever one of Remail's notifications is tapped while the
+/// app runs (`take_notification_tap` says which).
+pub fn on_notification_tap<R: Runtime>(app: &AppHandle<R>, handler: impl Fn() + Send + Sync + 'static) -> anyhow::Result<()> {
+    let channel = tauri::ipc::Channel::new(move |_| {
+        handler();
+        Ok(())
+    });
+    native(app)?
+        .run_mobile_plugin::<()>("registerListener", RegisterListener { event: "notificationTap", handler: channel })
+        .map_err(|e| anyhow::anyhow!("{e}"))
+}
+
+#[derive(Deserialize)]
+struct TapReply {
+    id: Option<i32>,
+}
+
+/// The id of the notification tapped last (also one that started the app), once.
+pub fn take_notification_tap<R: Runtime>(app: &AppHandle<R>) -> Option<i32> {
+    let reply: TapReply = native(app).ok()?.run_mobile_plugin("takeNotificationTap", ()).ok()?;
+    reply.id
+}

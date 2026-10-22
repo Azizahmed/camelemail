@@ -1,5 +1,6 @@
 package app.remail.mobile
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.ActionMode
 import android.view.View
@@ -8,6 +9,33 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
+  companion object {
+    /** The id of the Remail notification tapped last, until the app takes it
+     *  (RemailPlugin). Kept here because a tap can arrive before any plugin
+     *  is loaded: when it starts the app, or relaunches it after Android
+     *  ended the process. */
+    private var tapped: Int? = null
+
+    /** The notification id of a tap intent from the notification plugin. */
+    fun tapOf(intent: Intent?): Int? {
+      if (intent == null || intent.getStringExtra("NotificationUserAction") != "tap") return null
+      return intent.getIntExtra("NotificationId", Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE }
+    }
+
+    @Synchronized
+    fun takeTap(): Int? = tapped.also { tapped = null }
+
+    @Synchronized
+    private fun keep(id: Int?) {
+      if (id != null) tapped = id
+    }
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    keep(tapOf(intent))
+    super.onNewIntent(intent)
+  }
+
   /** The web view's text menu (Copy, Share…), so the page can close a stale one. */
   var textMenu: ActionMode? = null
 
@@ -22,6 +50,8 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
+    // Started by a tap (not restored, which would repeat it).
+    if (savedInstanceState == null) keep(tapOf(intent))
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
     // Android draws apps edge to edge: keep the web view clear of the status

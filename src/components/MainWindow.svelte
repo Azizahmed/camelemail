@@ -27,6 +27,7 @@
   } from "../lib/mail.svelte";
   import { bindingCaps, bindings, eventKey, isModifierKey, matchKey, PREFIX, PREFIX_TIMEOUT, type MatchOptions } from "../lib/shortcuts.svelte";
   import { isTyping, toastError } from "../lib/ui.svelte";
+  import { onNotificationOpen, openNotificationTarget } from "../lib/notify-open";
   import FirstMailbox from "./auth/FirstMailbox.svelte";
   import type CalendarViewType from "./calendar/CalendarView.svelte";
   import CommandPalette from "./CommandPalette.svelte";
@@ -98,7 +99,20 @@
   }
 
   onMount(() => {
-    initMail().catch((e) => (startupError = errorText(e)));
+    let unlisten: (() => void) | null = null;
+    let gone = false;
+    initMail()
+      .then(async () => {
+        // A click on a notification opens its conversation (or the inbox, or the calendar).
+        const un = await onNotificationOpen(openNotificationTarget).catch(() => null);
+        if (gone) un?.();
+        else unlisten = un;
+      })
+      .catch((e) => (startupError = errorText(e)));
+    return () => {
+      gone = true;
+      unlisten?.();
+    };
   });
 
   // Auto-clean leaves the open conversation alone until you move on.

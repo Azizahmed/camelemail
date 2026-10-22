@@ -31,3 +31,12 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 # Desktop only: one running instance, and the stdio MCP bridge's lookups.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"
+
+# Linux: raising the window when a notification is clicked (the activation
+# token the notification server sends, or an X11 timestamp, handed to GTK).
+# Same versions as Tauri and the notification plugin use.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+gdkwayland-sys = "0.18"
+gdkx11-sys = "0.18"
+zbus = "5"

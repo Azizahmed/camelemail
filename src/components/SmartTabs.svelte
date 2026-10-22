@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Inbox, Layers, Megaphone, MessagesSquare, Bell, Users } from "@lucide/svelte";
   import { mail, setSmartTab } from "../lib/mail.svelte";
+  import Select from "./Select.svelte";
   import type { Category } from "../lib/types";
 
   let { compact = false }: { compact?: boolean } = $props();
@@ -11,6 +12,11 @@
     { id: "social", label: "Social", icon: Users },
     { id: "forums", label: "Forums", icon: MessagesSquare },
   ];
+
+  type OtherPick = "all" | Exclude<Category, "primary">;
+  const OPTIONS: { value: OtherPick; label: string }[] = [{ value: "all", label: "All" }, ...BUCKETS.map((b) => ({ value: b.id, label: b.label }))];
+  // Picking a category also switches to Other.
+  const picked = $derived<OtherPick>(mail.smart.tab === "other" ? (mail.smart.other ?? "all") : "all");
 </script>
 
 <div class="smart" class:compact>
@@ -24,17 +30,9 @@
       {#if mail.smart.counts.other > 0}<span class="n">{mail.smart.counts.other}</span>{/if}
     </button>
   </div>
-  {#if mail.smart.tab === "other"}
-    <div class="chips">
-      <button class="chip" class:on={mail.smart.other === null} onclick={() => setSmartTab("other", null)}>All</button>
-      {#each BUCKETS as b (b.id)}
-        <button class="chip" class:on={mail.smart.other === b.id} onclick={() => setSmartTab("other", b.id)}>
-          <b.icon size={12} />
-          {b.label}
-        </button>
-      {/each}
-    </div>
-  {/if}
+  <div class="other-pick" class:on={mail.smart.tab === "other"}>
+    <Select value={picked} options={OPTIONS} width={136} label="Other: category" onchange={(v) => setSmartTab("other", v === "all" ? null : v)} />
+  </div>
 </div>
 
 <style>
@@ -83,29 +81,11 @@
     color: var(--accent);
     text-align: center;
   }
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
+  .other-pick {
+    font-size: 12.5px;
+    opacity: 0.85;
   }
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 12px;
-    border: 0.5px solid var(--border-tertiary);
-    background: transparent;
-    border-radius: 999px;
-    padding: 3px 10px;
-    color: var(--content-subtle);
-  }
-  .chip:hover {
-    color: var(--content);
-    background: var(--surface-hover);
-  }
-  .chip.on {
-    border-color: var(--accent);
-    color: var(--accent);
-    background: var(--accent-soft);
+  .other-pick.on {
+    opacity: 1;
   }
 </style>

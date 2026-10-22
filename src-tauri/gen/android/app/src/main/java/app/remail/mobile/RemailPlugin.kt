@@ -166,4 +166,20 @@ class RemailPlugin(private val activity: Activity) : Plugin(activity) {
     activity.runOnUiThread { (activity as? MainActivity)?.textMenu?.finish() }
     invoke.resolve()
   }
+
+  // Taps on Remail's notifications (src-tauri/src/notify.rs): MainActivity
+  // keeps the tapped notification's id; this tells the Rust side and hands
+  // it over.
+
+  override fun onNewIntent(intent: Intent) {
+    if (MainActivity.tapOf(intent) != null) trigger("notificationTap", JSObject())
+  }
+
+  /** `{ id }` of the notification tapped last (once), or `{}`. */
+  @Command
+  fun takeNotificationTap(invoke: Invoke) {
+    val reply = JSObject()
+    MainActivity.takeTap()?.let { reply.put("id", it) }
+    invoke.resolve(reply)
+  }
 }
