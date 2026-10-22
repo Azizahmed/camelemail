@@ -2,5 +2,5 @@
 <resources>
     <color name="remail_background">#FFF7F7F8</color>
     <!-- Launcher icon background: the brand charcoal (assets/brand). -->
-    <color name="ic_launcher_background">#FF1A1E25</color>
+    <color name="ic_launcher_background">#FF26231F</color>
 </resources>
