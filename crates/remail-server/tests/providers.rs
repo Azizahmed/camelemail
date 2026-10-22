@@ -232,3 +232,54 @@ impl<T: axum::response::IntoResponse> OkResponse for T {
         self.into_response()
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn google_app_from_the_environment() {
+    let Some(s) = start_with(Mode::Hosted, |c| {
+        c.google_client_id = Some("env.apps.googleusercontent.com".into());
+        c.google_client_secret = Some("env-secret".into());
+    })
+    .await
+    else {
+        return;
+    };
+    let t = token(&s.new_user("ge@example.com", PASSWORD).await);
+    let p = s.get("/providers", Some(&t)).await;
+    assert_eq!(p.body[0]["kind"], "google");
+    assert_eq!(p.body[0]["enabled"], true);
+    assert_eq!(p.body[0]["serverExchange"], true);
+    assert_eq!(
+        p.body[0]["oauth"]["clientId"],
+        "env.apps.googleusercontent.com"
+    );
+    assert!(!serde_json::to_string(&p.body)
+        .unwrap()
+        .contains("env-secret"));
+    let org = remail_server::orgs::by_slug(&s.db, "public")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        remail_server::orgs::secrets(&s.db, &s.state.env, &org.id)
+            .await
+            .unwrap()
+            .google_client_secret,
+        "env-secret"
+    );
+    // A restart with the same values saves nothing new.
+    let v = remail_server::orgs::config(&s.db, &s.state.env, &org)
+        .await
+        .unwrap()
+        .0;
+    remail_server::orgs::startup(&s.state.cfg, &s.db, &s.state.env, false)
+        .await
+        .unwrap();
+    assert_eq!(
+        remail_server::orgs::config(&s.db, &s.state.env, &org)
+            .await
+            .unwrap()
+            .0,
+        v
+    );
+    s.finish().await;
+}

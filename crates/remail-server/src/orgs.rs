@@ -219,6 +219,7 @@ pub async fn startup(cfg: &Config, db: &PgPool, env: &Envelope, create_first_org
                     org
                 }
             };
+            apply_google_app(cfg, db, env, &public).await?;
             // Until the service has an owner, every start offers a fresh
             // one-time owner invite (an invite needs no e-mail delivery).
             if create_first_org {
@@ -240,6 +241,31 @@ pub async fn startup(cfg: &Config, db: &PgPool, env: &Envelope, create_first_org
     }
     crate::licence::ensure_deployment(cfg, db, env).await?;
     Ok(invite)
+}
+
+/// Hosted: the Google app from `REMAIL_GOOGLE_CLIENT_ID` and
+/// `REMAIL_GOOGLE_CLIENT_SECRET` goes into the public org (saved only when
+/// it changed). Both are needed: Google's token endpoint wants the secret.
+async fn apply_google_app(cfg: &Config, db: &PgPool, env: &Envelope, org: &Org) -> Result<()> {
+    let (Some(id), Some(secret)) = (&cfg.google_client_id, &cfg.google_client_secret) else {
+        if cfg.google_client_id.is_some() != cfg.google_client_secret.is_some() {
+            tracing::warn!("Google sign-in needs both REMAIL_GOOGLE_CLIENT_ID and REMAIL_GOOGLE_CLIENT_SECRET; ignoring the one set");
+        }
+        return Ok(());
+    };
+    let (_, mut config) = config(db, env, org).await?;
+    if config.providers.google_app.client_id != *id || !config.providers.google {
+        config.providers.google_app.client_id = id.clone();
+        config.providers.google = true;
+        set_config(db, env, &org.id, &config, "startup").await?;
+        tracing::info!("Google sign-in set up for the public org");
+    }
+    let mut secrets = secrets(db, env, &org.id).await?;
+    if secrets.google_client_secret != *secret {
+        secrets.google_client_secret = secret.clone();
+        set_secrets(db, env, &org.id, &secrets).await?;
+    }
+    Ok(())
 }
 
 pub fn invite_url(cfg: &Config, token: &str) -> String {

@@ -48,6 +48,8 @@ server on `http://127.0.0.1:8080`, key in its own volume).
 | `REMAIL_DEV_MAIL` | unset | `1` in **debug builds**: keep mail in memory at `GET /v1/dev/mail` |
 | `REMAIL_TRUST_PROXY` | unset | `1`: take the client IP from `X-Forwarded-For` (behind Caddy) |
 | `REMAIL_ORG_NAME` | `My organisation` | On-prem: name of the org created on first start |
+| `REMAIL_GOOGLE_CLIENT_ID` | unset | Hosted: Google OAuth client ("Desktop app" type) for Gmail + Google Calendar sign-in in the public org |
+| `REMAIL_GOOGLE_CLIENT_SECRET` | unset | Its client secret (kept on the server; needs `REMAIL_GOOGLE_CLIENT_ID` too) |
 | `REMAIL_GOOGLE_TOKEN_URL` | Google's | Token endpoint for the server-side code exchange (tests) |
 | `REMAIL_BACKUP_PASSPHRASE` | prompt | Passphrase for `key backup` / `key restore` |
 | `REMAIL_LICENCE_PUBKEYS` | unset | **Build time.** Comma-separated base64url Ed25519 issuer keys. Unset: no licence enforcement |

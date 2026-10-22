@@ -87,6 +87,11 @@ pub struct Config {
     pub licence_keys: Vec<VerifyingKey>,
     /// On-prem: name of the organisation created on first start.
     pub first_org_name: String,
+    /// Hosted: the Google OAuth app ("Desktop app" client) the public org
+    /// signs Gmail and Google Calendar in with. The secret stays on the
+    /// server, which exchanges and refreshes codes for the clients.
+    pub google_client_id: Option<String>,
+    pub google_client_secret: Option<String>,
 }
 
 /// Issuer keys compiled in with `REMAIL_LICENCE_PUBKEYS=<b64url>,<b64url>`.
@@ -126,6 +131,8 @@ impl Config {
             google_token_url: "https://oauth2.googleapis.com/token".into(),
             licence_keys: builtin_licence_keys(),
             first_org_name: "My organisation".into(),
+            google_client_id: None,
+            google_client_secret: None,
         }
     }
 
@@ -165,6 +172,8 @@ impl Config {
         if let Some(n) = env("REMAIL_ORG_NAME") {
             c.first_org_name = n;
         }
+        c.google_client_id = env("REMAIL_GOOGLE_CLIENT_ID");
+        c.google_client_secret = env("REMAIL_GOOGLE_CLIENT_SECRET");
         Ok(c)
     }
 }
