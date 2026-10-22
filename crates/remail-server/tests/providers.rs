@@ -330,3 +330,12 @@ async fn the_environment_only_seeds_empty_apps() {
     assert!(!reseeded.providers.google);
     s.finish().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn public_org_renamed_from_remail() {
+    let Some(s) = start(Mode::Hosted).await else { return };
+    sqlx::query("update orgs set name = 'Remail' where slug = 'public'").execute(&s.db).await.unwrap();
+    remail_server::orgs::startup(&s.state.cfg, &s.db, &s.state.env, false).await.unwrap();
+    assert_eq!(remail_server::orgs::by_slug(&s.db, "public").await.unwrap().unwrap().name, "Camel Mail");
+    s.finish().await;
+}

@@ -51,12 +51,12 @@
   --separator-subtle: #e8e8e8;
   --border-tertiary: #bebebe;
   --row-hover: linear-gradient(90deg, #f9f9fb 0%, #f1f2f4 2%, #f1f2f4 98%, #f9f9fb 100%);
-  --row-selected-tint: rgba(255, 124, 25, 0.09);
-  --unread-indicator: #ff7c19;
-  /* Brand: orange #FF7C19, charcoal #1A1E25 (assets/brand). Text-safe orange below. */
-  --accent: #e2600b;
-  --accent-hover: #c95409;
-  --accent-soft: rgba(255, 124, 25, 0.13);
+  --row-selected-tint: rgba(211, 144, 51, 0.1);
+  --unread-indicator: #d39033;
+  /* Brand: camel #D39033, charcoal #26231F (assets/camel-mail). */
+  --accent: #d39033;
+  --accent-hover: #b8761f;
+  --accent-soft: rgba(211, 144, 51, 0.15);
   --brand-charcoal: #1a1e25;
   --surface-reading: #ffffff;
   --interactive: #3b81f6;
@@ -112,11 +112,11 @@ html[data-theme="dark"] {
   --separator-subtle: #2b2b2b;
   --border-tertiary: #4a4a4a;
   --row-hover: linear-gradient(90deg, #191a1a 0%, #202020 2%, #202020 98%, #191a1a 100%);
-  --row-selected-tint: rgba(255, 138, 61, 0.12);
+  --row-selected-tint: rgba(224, 166, 84, 0.13);
   --unread-indicator: #ff8a3d;
-  --accent: #ff8a3d;
-  --accent-hover: #ff9c5a;
-  --accent-soft: rgba(255, 138, 61, 0.16);
+  --accent: #e0a654;
+  --accent-hover: #e9b66f;
+  --accent-soft: rgba(224, 166, 84, 0.17);
   --surface-reading: #1e1f20;
   --draft-text: #ffb547;
   --scheduled-text: #3ddc8a;

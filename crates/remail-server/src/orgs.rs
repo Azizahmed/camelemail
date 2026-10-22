@@ -212,6 +212,12 @@ pub async fn startup(cfg: &Config, db: &PgPool, env: &Envelope, create_first_org
     match cfg.mode {
         Mode::Hosted => {
             let public = match by_slug(db, PUBLIC_SLUG).await? {
+                // Created before the product was renamed.
+                Some(org) if org.name == "Remail" => {
+                    sqlx::query("update orgs set name = 'Camel Mail' where id = $1").bind(&org.id).execute(db).await?;
+                    tracing::info!("renamed the public org to Camel Mail");
+                    by_slug(db, PUBLIC_SLUG).await?.context("public org vanished")?
+                }
                 Some(org) => org,
                 None => {
                     let org = create(db, env, "Camel Mail", PUBLIC_SLUG, "open").await?;

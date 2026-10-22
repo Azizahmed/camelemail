@@ -175,7 +175,7 @@
   }
 
   // ------------------------------------------------------------------ accounts
-  const COLORS = ["#ff7c19", "#5b4ff0", "#3b81f6", "#10b981", "#f97316", "#ef4444", "#eab308", "#06b6d4", "#ec4899"];
+  const COLORS = ["#d39033", "#5b4ff0", "#3b81f6", "#10b981", "#f97316", "#ef4444", "#eab308", "#06b6d4", "#ec4899"];
   let showAdd = $state(false);
   let openId = $state<string | null>(null);
   let reauthId = $state<string | null>(null);

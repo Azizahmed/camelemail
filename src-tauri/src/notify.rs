@@ -51,7 +51,7 @@ pub fn show(app: &AppHandle, title: &str, body: &str, open: Option<&OpenTarget>)
         if let Some(open) = open {
             phone::remember(app, id, open);
         }
-        builder.id(id).icon("ic_stat_remail").icon_color("#2C3D66").large_body(body).auto_cancel()
+        builder.id(id).icon("ic_stat_remail").icon_color("#D39033").large_body(body).auto_cancel()
     };
     let _ = builder.show();
 }

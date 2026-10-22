@@ -12,7 +12,7 @@
 
   let { settings, update }: { settings: AppSettings; update: (patch: Partial<AppSettings>) => Promise<void> } = $props();
 
-  const COLORS = ["#ff7c19", "#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#00c7be", "#007aff", "#5856d6", "#af52de", "#ff2d55", "#a2845e", "#8e8e93"];
+  const COLORS = ["#d39033", "#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#00c7be", "#007aff", "#5856d6", "#af52de", "#ff2d55", "#a2845e", "#8e8e93"];
 
   let accounts = $state<CalAccount[]>([]);
   let mailAccounts = $state<Account[]>([]);

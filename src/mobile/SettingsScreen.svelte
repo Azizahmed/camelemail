@@ -224,11 +224,11 @@
     width: 100%;
     height: 43px;
     border-radius: 21px;
-    background: #86b1f5;
+    background: var(--m-accent);
     color: #fff;
   }
   :global(html[data-theme="dark"]) .manage {
-    background: #4f7fd6;
+    background: #b9772a;
   }
 
   .m-row :global(svg) {
