@@ -202,8 +202,10 @@ async fn run(cli: Cli) -> Result<()> {
             if let Some(p) = lic.problem.filter(|_| state.cfg.mode == Mode::Onprem) {
                 tracing::warn!(problem = %p, "licence");
             }
-            if state.cfg.smtp_url.is_none() {
-                tracing::warn!("REMAIL_SMTP_URL is not set: verification, reset and invite e-mails are not sent");
+            if !state.mailer.configured() {
+                tracing::warn!(
+                    "neither REMAIL_SMTP_URL nor REMAIL_SNDR_API_KEY is set: no e-mail is sent, so sign-up takes invitations only"
+                );
             }
             app::spawn_housekeeping(db.clone());
             let listener = tokio::net::TcpListener::bind(bind).await.with_context(|| format!("can't listen on {bind}"))?;
@@ -255,7 +257,7 @@ async fn run(cli: Cli) -> Result<()> {
             let token = auth::tokens::create_invite(&c.db, &org.id, Some(&email), &role).await?;
             let url = orgs::invite_url(&c.cfg, token.expose());
             let m = mailer::Mailer::new(&c.cfg)?;
-            if c.cfg.smtp_url.is_some() {
+            if m.configured() {
                 m.send_and_wait(mailer::invite_mail(&c.cfg.public_url, &org.name, &auth::normalize_email(&email), token.expose())).await;
             }
             println!("Invite for {email} ({role}), valid 7 days:\n\n  {url}\n");

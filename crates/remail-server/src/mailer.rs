@@ -1,9 +1,10 @@
 //! Server e-mail: verification, password reset and invites.
 //!
-//! With `REMAIL_SMTP_URL` mail goes out through lettre. Without it, debug
-//! builds started with `REMAIL_DEV_MAIL=1` keep mail in memory for
-//! `GET /v1/dev/mail` (tests read links from there); otherwise the server
-//! logs that mail isn't configured, never the link itself.
+//! With `REMAIL_SMTP_URL` mail goes out through lettre; else with
+//! `REMAIL_SNDR_API_KEY` through SNDR's HTTPS API (CranL's e-mail service).
+//! Without either, debug builds started with `REMAIL_DEV_MAIL=1` keep mail in
+//! memory for `GET /v1/dev/mail` (tests read links from there); otherwise the
+//! server logs that mail isn't configured, never the link itself.
 
 use std::sync::Mutex;
 
@@ -24,6 +25,8 @@ pub struct Mail {
 
 enum Transport {
     Smtp(AsyncSmtpTransport<Tokio1Executor>),
+    /// SNDR-style JSON API: `POST {url}` with a bearer key.
+    Sndr { http: reqwest::Client, url: String, key: String },
     Memory,
     Off,
 }
@@ -43,8 +46,15 @@ impl Mailer {
                     .context("REMAIL_SMTP_URL is not a valid SMTP URL")?
                     .build(),
             ),
-            None if cfg!(debug_assertions) && cfg.dev_mail => Transport::Memory,
-            None => Transport::Off,
+            None => match &cfg.sndr_api_key {
+                Some(key) => Transport::Sndr {
+                    http: reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).build()?,
+                    url: cfg.sndr_url.clone(),
+                    key: key.clone(),
+                },
+                None if cfg!(debug_assertions) && cfg.dev_mail => Transport::Memory,
+                None => Transport::Off,
+            },
         };
         Ok(Mailer { transport, from, outbox: Mutex::new(Vec::new()) })
     }
@@ -67,10 +77,40 @@ impl Mailer {
     async fn deliver(&self, mail: Mail, wait: bool) {
         match &self.transport {
             Transport::Off => {
-                tracing::warn!(kind = %mail.subject, "mail not configured (REMAIL_SMTP_URL); message not sent");
+                tracing::warn!(kind = %mail.subject, "mail not configured (REMAIL_SMTP_URL or REMAIL_SNDR_API_KEY); message not sent");
             }
             Transport::Memory => {
                 self.outbox.lock().unwrap_or_else(|p| p.into_inner()).push(mail);
+            }
+            Transport::Sndr { http, url, key } => {
+                let body = serde_json::json!({
+                    "from": self.from.to_string(),
+                    "to": [mail.to],
+                    "subject": mail.subject,
+                    "text": mail.body,
+                });
+                let req = http.post(url.as_str()).bearer_auth(key).json(&body);
+                // In the background, like SMTP. Failures log the status and
+                // the service's error code only, never the message.
+                let job = tokio::spawn(async move {
+                    match req.send().await {
+                        Ok(r) if r.status().is_success() => {}
+                        Ok(r) => {
+                            let status = r.status().as_u16();
+                            let code = r
+                                .json::<serde_json::Value>()
+                                .await
+                                .ok()
+                                .and_then(|v| v["error"]["code"].as_str().map(String::from))
+                                .unwrap_or_default();
+                            tracing::warn!(status, code = %code, "mail not sent (SNDR)");
+                        }
+                        Err(e) => tracing::warn!(error = %e.without_url(), "mail not sent (SNDR)"),
+                    }
+                });
+                if wait {
+                    let _ = job.await;
+                }
             }
             Transport::Smtp(t) => {
                 let to = match mail.to.parse::<Mailbox>() {

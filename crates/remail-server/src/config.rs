@@ -66,6 +66,9 @@ pub struct Config {
     pub master_key_file: PathBuf,
     /// lettre URL, e.g. `smtps://user:pass@smtp.example.com`.
     pub smtp_url: Option<String>,
+    /// SNDR (CranL's e-mail service) API key, used when there's no SMTP URL.
+    pub sndr_api_key: Option<String>,
+    pub sndr_url: String,
     pub mail_from: String,
     /// Keep sent mail in memory and expose it at `GET /v1/dev/mail`. Debug
     /// builds only; ignored in release.
@@ -110,6 +113,8 @@ impl Config {
             public_url: "http://localhost:8080".into(),
             master_key_file: PathBuf::from("/etc/remail/master.key"),
             smtp_url: None,
+            sndr_api_key: None,
+            sndr_url: "https://api.sndr.sh/v1/send".into(),
             mail_from: "Remail <no-reply@localhost>".into(),
             dev_mail: false,
             argon2: Argon2Cost::default(),
@@ -145,6 +150,10 @@ impl Config {
             c.master_key_file = PathBuf::from(p);
         }
         c.smtp_url = env("REMAIL_SMTP_URL");
+        c.sndr_api_key = env("REMAIL_SNDR_API_KEY");
+        if let Some(u) = env("REMAIL_SNDR_URL") {
+            c.sndr_url = u;
+        }
         if let Some(f) = env("REMAIL_MAIL_FROM") {
             c.mail_from = f;
         }

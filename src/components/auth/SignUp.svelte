@@ -12,12 +12,15 @@
   let {
     meta,
     email = $bindable(""),
+    invite: givenInvite = "",
     oncreated,
     onsignin,
     onback,
   }: {
     meta: Meta | null;
     email?: string;
+    /** An invitation code to start with (pasted on the confirmation screen). */
+    invite?: string;
     /** `verify`: what the server asks for next. The password is passed on so signing in can follow. */
     oncreated: (verify: "email" | "none", password: string) => void;
     onsignin: () => void;
@@ -26,9 +29,11 @@
 
   let name = $state("");
   let password = $state("");
-  let invite = $state("");
+  // svelte-ignore state_referenced_locally
+  let invite = $state(givenInvite);
   // Open sign-up still takes invitations (an invited account needs no e-mail check).
-  let showInvite = $state(false);
+  // svelte-ignore state_referenced_locally
+  let showInvite = $state(!!givenInvite);
   let busy = $state(false);
   let error = $state("");
 

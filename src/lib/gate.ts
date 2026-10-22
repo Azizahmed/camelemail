@@ -36,6 +36,11 @@ export const windowReady = (phase: CloudPhase | undefined) => phase === "ready";
  * The token in what was pasted from a verification or reset e-mail: the whole
  * link (remail://verify?t=…, https://…/verify?token=…) or just the code.
  */
+/** Invitation codes (`inv_…`) go to sign-up, not to the e-mail confirmation. */
+export function isInviteToken(token: string): boolean {
+  return token.startsWith("inv_");
+}
+
 export function extractToken(input: string): string {
   const s = input.trim();
   if (!s) return "";

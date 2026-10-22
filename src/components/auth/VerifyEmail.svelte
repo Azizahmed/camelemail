@@ -4,10 +4,21 @@
   import { api } from "../../lib/api";
   import { autofocus } from "../../lib/actions";
   import { errMessage, t } from "../../lib/i18n.svelte";
-  import { extractToken } from "../../lib/gate";
+  import { extractToken, isInviteToken } from "../../lib/gate";
   import AuthScreen from "./AuthScreen.svelte";
 
-  let { email, onverified, onsignin }: { email: string; onverified: () => Promise<void> | void; onsignin: () => void } = $props();
+  let {
+    email,
+    onverified,
+    onsignin,
+    oninvite,
+  }: {
+    email: string;
+    onverified: () => Promise<void> | void;
+    onsignin: () => void;
+    /** An invitation code was pasted here: it belongs on the sign-up screen. */
+    oninvite: (code: string) => void;
+  } = $props();
 
   let link = $state("");
   let busy = $state(false);
@@ -17,6 +28,10 @@
     e.preventDefault();
     const token = extractToken(link);
     if (busy || !token) return;
+    if (isInviteToken(token)) {
+      oninvite(token);
+      return;
+    }
     busy = true;
     error = "";
     try {

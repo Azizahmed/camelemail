@@ -39,7 +39,10 @@ async fn meta(State(s): State<AppState>) -> AppResult<ApiJson<Meta>> {
     let lic = crate::licence::status(&s.cfg, &s.db, &s.env).await?;
     let (org_name, signup) = match s.cfg.mode {
         Mode::Hosted => {
-            let open = orgs::by_slug(&s.db, orgs::PUBLIC_SLUG).await?.is_some_and(|o| o.signup_mode == "open");
+            // Open sign-up needs a verification e-mail; without mail delivery
+            // the server only takes invitations.
+            let open = s.mailer.configured()
+                && orgs::by_slug(&s.db, orgs::PUBLIC_SLUG).await?.is_some_and(|o| o.signup_mode == "open");
             (None, if open { "open" } else { "invite" })
         }
         Mode::Onprem => (orgs::first(&s.db).await?.map(|o| o.name), "invite"),
