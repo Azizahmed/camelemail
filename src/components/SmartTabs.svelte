@@ -15,7 +15,7 @@
 
   type OtherPick = "all" | Exclude<Category, "primary">;
   const OPTIONS: { value: OtherPick; label: string }[] = [{ value: "all", label: "All" }, ...BUCKETS.map((b) => ({ value: b.id, label: b.label }))];
-  // Picking a category also switches to Other.
+  // Shown only on the Other tab.
   const picked = $derived<OtherPick>(mail.smart.tab === "other" ? (mail.smart.other ?? "all") : "all");
 </script>
 
@@ -30,9 +30,11 @@
       {#if mail.smart.counts.other > 0}<span class="n">{mail.smart.counts.other}</span>{/if}
     </button>
   </div>
-  <div class="other-pick" class:on={mail.smart.tab === "other"}>
-    <Select size="sm" value={picked} options={OPTIONS} label="Other: category" onchange={(v) => setSmartTab("other", v === "all" ? null : v)} />
-  </div>
+  {#if mail.smart.tab === "other"}
+    <div class="other-pick on">
+      <Select size="sm" value={picked} options={OPTIONS} label="Other: category" onchange={(v) => setSmartTab("other", v === "all" ? null : v)} />
+    </div>
+  {/if}
 </div>
 
 <style>
