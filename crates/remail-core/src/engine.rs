@@ -895,7 +895,7 @@ impl Engine {
             .context("Google sign-in isn't set up for your organisation yet: an administrator needs to add a Google client ID.")?;
         let server_exchange = self.org().is_some_and(|o| o.google_server_exchange);
         let cancel = self.new_sign_in();
-        let provider = google_provider();
+        let provider = google_provider(self.org().as_ref());
         let pending = oauth::begin(&provider, &client_id, login_hint).await?;
         open(&pending.url)?;
         let authorized = tokio::select! {
@@ -2859,11 +2859,14 @@ fn microsoft_provider(tenant: Option<&str>) -> oauth::Provider {
 }
 
 /// Google's sign-in. `REMAIL_GOOGLE_AUTHORITY` overrides it in debug builds.
-fn google_provider() -> oauth::Provider {
-    match debug_endpoint("REMAIL_GOOGLE_AUTHORITY") {
+/// `org`: its Google app's client secret goes with token requests.
+fn google_provider(org: Option<&OrgAccess>) -> oauth::Provider {
+    let mut p = match debug_endpoint("REMAIL_GOOGLE_AUTHORITY") {
         Some(a) => oauth::Provider::google_at(&a),
         None => oauth::Provider::google(),
-    }
+    };
+    p.client_secret = org.map(|o| o.providers.google_app.client_secret.trim().to_string()).unwrap_or_default();
+    p
 }
 
 /// Google Calendar's CalDAV endpoint. `REMAIL_GOOGLE_CALDAV` overrides it in debug builds.
@@ -2882,7 +2885,7 @@ fn provider_name(auth: &str) -> &'static str {
 
 fn provider_for(inner: &Inner, provider: &str) -> oauth::Provider {
     if provider == oauth::GOOGLE {
-        google_provider()
+        google_provider(inner.org.lock().unwrap().as_ref())
     } else {
         microsoft_provider(inner.org.lock().unwrap().as_ref().map(|o| o.providers.microsoft_app.tenant.as_str()))
     }
@@ -2965,11 +2968,11 @@ async fn access_token(inner: &Inner, account_id: &str, service: Service) -> Resu
         return Ok(t);
     }
     let sign_in_again = |why: &str| anyhow::Error::from(oauth::SignInRequired(why.to_string()));
-    let grant: oauth::Grant = inner
-        .secrets
-        .get(account_id)?
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .ok_or_else(|| sign_in_again("Sign in again"))?;
+    let Some(grant) = inner.secrets.get(account_id)?.and_then(|raw| serde_json::from_str::<oauth::Grant>(&raw).ok()) else {
+        // Google sign-ins stay on the device that made them (see cloud::mapping).
+        let google = inner.store.account(account_id)?.is_some_and(|a| a.auth == oauth::GOOGLE);
+        return Err(sign_in_again(if google { "Sign in to Google on this device" } else { "Sign in again" }));
+    };
     let provider = provider_for(inner, &grant.provider);
     let name = provider.display_name();
     let scope = match service {

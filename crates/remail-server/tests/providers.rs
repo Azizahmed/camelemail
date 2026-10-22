@@ -243,43 +243,27 @@ async fn google_app_from_the_environment() {
     else {
         return;
     };
+    // Devices get the installed-app secret and talk to Google themselves:
+    // the server never exchanges or refreshes Google tokens.
     let t = token(&s.new_user("ge@example.com", PASSWORD).await);
     let p = s.get("/providers", Some(&t)).await;
     assert_eq!(p.body[0]["kind"], "google");
     assert_eq!(p.body[0]["enabled"], true);
-    assert_eq!(p.body[0]["serverExchange"], true);
-    assert_eq!(
-        p.body[0]["oauth"]["clientId"],
-        "env.apps.googleusercontent.com"
-    );
-    assert!(!serde_json::to_string(&p.body)
-        .unwrap()
-        .contains("env-secret"));
-    let org = remail_server::orgs::by_slug(&s.db, "public")
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        remail_server::orgs::secrets(&s.db, &s.state.env, &org.id)
-            .await
-            .unwrap()
-            .google_client_secret,
-        "env-secret"
-    );
-    // A restart with the same values saves nothing new.
-    let v = remail_server::orgs::config(&s.db, &s.state.env, &org)
-        .await
-        .unwrap()
-        .0;
-    remail_server::orgs::startup(&s.state.cfg, &s.db, &s.state.env, false)
-        .await
-        .unwrap();
-    assert_eq!(
-        remail_server::orgs::config(&s.db, &s.state.env, &org)
-            .await
-            .unwrap()
-            .0,
-        v
-    );
+    assert_eq!(p.body[0]["serverExchange"], false);
+    assert_eq!(p.body[0]["oauth"]["clientId"], "env.apps.googleusercontent.com");
+    assert_eq!(p.body[0]["oauth"]["clientSecret"], "env-secret");
+    let body = json!({"code": "c", "codeVerifier": "v", "redirectUri": "http://localhost:1"});
+    assert_eq!(s.post("/providers/google/token", body, Some(&t)).await.code(), "not_found");
+    assert_eq!(s.post("/providers/google/refresh", json!({"refreshToken": "1//r"}), Some(&t)).await.code(), "not_found");
+
+    // A secret the server held before (server-side exchange) is dropped on start.
+    let org = remail_server::orgs::by_slug(&s.db, "public").await.unwrap().unwrap();
+    let held = OrgSecrets { google_client_secret: "env-secret".into(), ..Default::default() };
+    remail_server::orgs::set_secrets(&s.db, &s.state.env, &org.id, &held).await.unwrap();
+    let v = remail_server::orgs::config(&s.db, &s.state.env, &org).await.unwrap().0;
+    remail_server::orgs::startup(&s.state.cfg, &s.db, &s.state.env, false).await.unwrap();
+    assert_eq!(remail_server::orgs::secrets(&s.db, &s.state.env, &org.id).await.unwrap().google_client_secret, "");
+    // The same values again: the config isn't saved anew.
+    assert_eq!(remail_server::orgs::config(&s.db, &s.state.env, &org).await.unwrap().0, v);
     s.finish().await;
 }

@@ -246,6 +246,9 @@ pub async fn startup(cfg: &Config, db: &PgPool, env: &Envelope, create_first_org
 /// Hosted: the Google app from `REMAIL_GOOGLE_CLIENT_ID` and
 /// `REMAIL_GOOGLE_CLIENT_SECRET` goes into the public org (saved only when
 /// it changed). Both are needed: Google's token endpoint wants the secret.
+/// It's a "Desktop app" client, whose secret isn't confidential: devices get
+/// it and sign in to Google themselves, so no Google token ever passes
+/// through this server (no server-side exchange or refresh).
 async fn apply_google_app(cfg: &Config, db: &PgPool, env: &Envelope, org: &Org) -> Result<()> {
     let (Some(id), Some(secret)) = (&cfg.google_client_id, &cfg.google_client_secret) else {
         if cfg.google_client_id.is_some() != cfg.google_client_secret.is_some() {
@@ -254,15 +257,18 @@ async fn apply_google_app(cfg: &Config, db: &PgPool, env: &Envelope, org: &Org) 
         return Ok(());
     };
     let (_, mut config) = config(db, env, org).await?;
-    if config.providers.google_app.client_id != *id || !config.providers.google {
+    let app = &config.providers.google_app;
+    if app.client_id != *id || app.client_secret != *secret || !config.providers.google {
         config.providers.google_app.client_id = id.clone();
+        config.providers.google_app.client_secret = secret.clone();
         config.providers.google = true;
         set_config(db, env, &org.id, &config, "startup").await?;
         tracing::info!("Google sign-in set up for the public org");
     }
+    // A server-held secret would turn on server-side exchange: drop it.
     let mut secrets = secrets(db, env, &org.id).await?;
-    if secrets.google_client_secret != *secret {
-        secrets.google_client_secret = secret.clone();
+    if !secrets.google_client_secret.is_empty() {
+        secrets.google_client_secret.clear();
         set_secrets(db, env, &org.id, &secrets).await?;
     }
     Ok(())

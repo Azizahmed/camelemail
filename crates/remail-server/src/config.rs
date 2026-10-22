@@ -88,8 +88,8 @@ pub struct Config {
     /// On-prem: name of the organisation created on first start.
     pub first_org_name: String,
     /// Hosted: the Google OAuth app ("Desktop app" client) the public org
-    /// signs Gmail and Google Calendar in with. The secret stays on the
-    /// server, which exchanges and refreshes codes for the clients.
+    /// signs Gmail and Google Calendar in with. Devices get both and talk to
+    /// Google directly (an installed-app secret isn't confidential).
     pub google_client_id: Option<String>,
     pub google_client_secret: Option<String>,
 }

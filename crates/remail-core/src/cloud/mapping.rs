@@ -219,6 +219,12 @@ fn collect_cred(engine: &Engine, owner: &str) -> Result<Option<Local>> {
     let mut r = LocalRecord { exhaustive: true, ..Default::default() };
     if owner.starts_with("acc_") {
         let Some(acc) = engine.store().account(owner)? else { return Ok(Some(out)) };
+        if acc.auth == crate::oauth::GOOGLE {
+            // Google sign-ins never leave the device: no Gmail access passes
+            // through or rests on the Remail server (Google's restricted-scope
+            // rules). An older upload is deleted from the server here.
+            return Ok(Some(out));
+        }
         let Some(secret) = secrets.get(owner)? else { return Ok(None) };
         if acc.auth == "password" {
             r.fields.insert(cred::KIND.into(), json!("password"));
@@ -329,6 +335,7 @@ fn collect_sender_rules(engine: &Engine) -> Result<Local> {
 
 /// Snoozes travel by the newest message's Message-ID: thread ids are local.
 fn collect_snoozes(engine: &Engine) -> Result<Local> {
+    let google = google_accounts(engine)?;
     let db = engine.store().db();
     let rows: Vec<(String, String, i64)> = {
         let mut stmt = db.prepare("SELECT account_id, thread_id, until FROM snoozes WHERE until > ?")?;
@@ -337,6 +344,9 @@ fn collect_snoozes(engine: &Engine) -> Result<Local> {
     };
     let mut out = Local::new();
     for (acc, thread, until) in rows {
+        if google.contains(&acc) {
+            continue;
+        }
         let mid: Option<String> = db
             .query_row(
                 "SELECT message_id FROM messages WHERE account_id = ? AND thread_id = ? AND message_id IS NOT NULL ORDER BY date DESC LIMIT 1",
@@ -352,6 +362,12 @@ fn collect_snoozes(engine: &Engine) -> Result<Local> {
         out.insert(snooze_key(&acc, &mid), r);
     }
     Ok(out)
+}
+
+/// Google accounts: their snoozes stay on the device too (a Message-ID is
+/// Gmail data, which mustn't rest on the Remail server).
+fn google_accounts(engine: &Engine) -> Result<BTreeSet<String>> {
+    Ok(engine.accounts()?.into_iter().filter(|a| a.auth == crate::oauth::GOOGLE).map(|a| a.id).collect())
 }
 
 fn snooze_key(account_id: &str, message_id: &str) -> String {
@@ -552,6 +568,12 @@ fn apply_cred(engine: &Engine, owner: &str, doc: &SectionDoc) -> Result<()> {
     let secret_id = crate::engine::credential_key(owner);
     let secrets = engine.secrets();
     let Some(rec) = doc.records.get(SINGLETON) else { return Ok(()) };
+    let have = secrets.get(&secret_id)?;
+    let google = |v: Option<&Value>| v.and_then(|g| g.get("provider")).and_then(Value::as_str) == Some(crate::oauth::GOOGLE);
+    // This device's own Google sign-in: the server has (and sends) none.
+    if google(have.as_deref().and_then(|h| serde_json::from_str::<Value>(h).ok()).as_ref()) {
+        return Ok(());
+    }
     if rec.is_deleted() {
         return secrets.delete(&secret_id);
     }
@@ -559,8 +581,8 @@ fn apply_cred(engine: &Engine, owner: &str, doc: &SectionDoc) -> Result<()> {
         Some("oauth") => rec.get(cred::GRANT).filter(|g| g.is_object()).cloned(),
         _ => rec.get(cred::PASSWORD).filter(|p| p.is_string()).cloned(),
     };
-    let Some(want) = want else { return Ok(()) };
-    let have = secrets.get(&secret_id)?;
+    // A Google sign-in uploaded before they stayed on devices: not used.
+    let Some(want) = want.filter(|w| !google(Some(w))) else { return Ok(()) };
     // Grants compare as JSON (key order differs between writers).
     let same = match (&want, &have) {
         (Value::String(p), Some(h)) => p == h,
@@ -810,9 +832,13 @@ fn apply_snoozes(engine: &Engine, doc: &SectionDoc, reset: bool) -> Result<()> {
             .query_row("SELECT thread_id FROM messages WHERE account_id = ? AND message_id = ? LIMIT 1", params![acc, mid], |r| r.get(0))
             .optional()?)
     };
+    let google = google_accounts(engine)?;
     let mut touched = BTreeSet::new();
     for (id, rec) in &doc.records {
         let Some((acc, mid)) = id.split_once('|') else { continue };
+        if google.contains(acc) {
+            continue;
+        }
         let Some(thread) = thread_of(acc, mid)? else { continue };
         if rec.is_deleted() {
             if store.snoozed_until(acc, &thread)?.is_some_and(|u| u > now) && store.unsnooze(acc, &thread)? {

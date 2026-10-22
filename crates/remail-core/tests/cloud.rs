@@ -445,8 +445,13 @@ async fn organisation_allow_list() {
     assert!(a.engine.microsoft_client_id().is_none());
 }
 
+/// Google's endpoints are set process-wide (`REMAIL_GOOGLE_AUTHORITY`): one
+/// Google test at a time.
+static GOOGLE_ENV: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[tokio::test(flavor = "multi_thread")]
 async fn google_code_exchanged_by_the_server() {
+    let _one_at_a_time = GOOGLE_ENV.lock().await;
     let (m, url) = mock().await;
     {
         let mut mm = m.lock().unwrap();
@@ -472,22 +477,74 @@ async fn google_code_exchanged_by_the_server() {
     a.cloud.sync_now().await.unwrap();
     let doc = m.lock().unwrap().doc("accounts");
     assert_eq!(doc.record(&added.account.id).unwrap().get("provider"), Some(&serde_json::json!("google")));
+    // The Google sign-in stays on this device: the server never gets it.
+    assert!(m.lock().unwrap().doc(&format!("cred:{}", added.account.id)).records.is_empty());
 
-    // A second computer has no access token yet: it refreshes through the server too.
+    // A second computer gets the account but signs in to Google itself.
     let b = ready_device(&url).await;
     let id = added.account.id.clone();
+    let mut status = None;
+    for _ in 0..100 {
+        status = b.engine.accounts().unwrap().into_iter().find(|x| x.id == id).map(|x| x.status);
+        if status == Some(AccountStatus::AuthError) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(status, Some(AccountStatus::AuthError), "B asks to sign in to Google");
+    assert!(b.secrets.get(&id).unwrap().is_none());
+    assert!(m.lock().unwrap().google_refreshes.is_empty());
+    // A keeps its own sign-in through further syncs.
+    a.cloud.sync_now().await.unwrap();
+    assert!(a.secrets.get(&id).unwrap().is_some());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn google_sign_in_stays_on_the_device() {
+    let _one_at_a_time = GOOGLE_ENV.lock().await;
+    let (m, url) = mock().await;
+    {
+        let mut mm = m.lock().unwrap();
+        mm.org.providers.google_app.client_id = "gclient".into();
+        mm.org.providers.google_app.client_secret = "gsecret".into();
+    }
+    let idp: Shared = Arc::new(Mutex::new(Idp::default()));
+    {
+        let mut i = idp.lock().unwrap();
+        i.refresh.insert("grt-1".into(), ("gat-2".into(), "grt-1".into()));
+        // Expires at once: the mailbox's next connection refreshes.
+        i.google_expires_in = Some(60);
+    }
+    std::env::set_var("REMAIL_GOOGLE_CALDAV", "http://127.0.0.1:1/caldav");
+    let google_port = serve(axum::Router::new().route("/token", axum::routing::post(google_token)).with_state(idp.clone())).await;
+    std::env::set_var("REMAIL_GOOGLE_AUTHORITY", format!("http://127.0.0.1:{google_port}"));
+    let accepted = Arc::new(Mutex::new(vec!["gat-1".to_string(), "gat-2".to_string()]));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let imap = ServerConfig { host: "127.0.0.1".into(), port: fake_imap(accepted.clone(), seen.clone()).await, security: Security::None };
+    let smtp = ServerConfig { host: "127.0.0.1".into(), port: fake_smtp(accepted).await, security: Security::None };
+    let a = ready_device(&url).await;
+    let req = OAuthAccountRequest { imap: Some(imap), smtp: Some(smtp), ..Default::default() };
+    let added = a.engine.add_google_account(google_browser(idp.clone(), "code-d", "me@gmail.com", "sub-me"), req).await.unwrap();
+    // The device exchanged the code with Google itself, with the installed-app secret.
+    assert!(m.lock().unwrap().google_exchanges.is_empty());
+    assert!(idp.lock().unwrap().token_requests.first().is_some_and(|(grant, _)| grant == "authorization_code"));
+    assert!(idp.lock().unwrap().client_secrets.iter().all(|s| s.as_deref() == Some("gsecret")));
+    // A snoozed Gmail conversation stays on the device too (its Message-ID is Gmail data).
+    let thread = put_message(a.engine.store(), &added.account.id, "g1@mail.gmail.com");
+    a.engine.snooze(&[engine::ThreadRef { account_id: added.account.id.clone(), thread_id: thread }], remail_core::store::now_ms() + 3_600_000).unwrap();
+    a.cloud.sync_now().await.unwrap();
+    assert!(m.lock().unwrap().doc(&format!("cred:{}", added.account.id)).records.is_empty());
+    assert!(m.lock().unwrap().doc("snoozes").records.is_empty());
+    // Refreshes go to Google directly too.
     for _ in 0..100 {
         if seen.lock().unwrap().iter().any(|t| t == "gat-2") {
             break;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    assert!(seen.lock().unwrap().iter().any(|t| t == "gat-2"), "B signed in to IMAP with the token the server refreshed");
-    assert_eq!(m.lock().unwrap().google_refreshes, ["grt-1"]);
-    assert!(idp.lock().unwrap().token_requests.iter().all(|(grant, _)| grant != "refresh_token"), "Google itself was never asked");
-    // Google didn't rotate it: the credential stays as it was.
-    let g: serde_json::Value = serde_json::from_str(&b.secrets.get(&id).unwrap().unwrap()).unwrap();
-    assert_eq!(g["refreshToken"], "grt-1");
+    assert!(seen.lock().unwrap().iter().any(|t| t == "gat-2"), "signed in to IMAP with the token Google refreshed");
+    assert!(idp.lock().unwrap().client_secrets.iter().all(|s| s.as_deref() == Some("gsecret")));
+    assert!(m.lock().unwrap().google_refreshes.is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]

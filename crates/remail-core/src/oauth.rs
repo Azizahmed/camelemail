@@ -42,6 +42,9 @@ pub struct Provider {
     /// Refreshes name the service's scopes (Microsoft: one resource per
     /// token); Google tokens cover every scope granted, so it's left out.
     pub refresh_with_scope: bool,
+    /// Sent with code exchanges and refreshes when set (Google installed-app
+    /// clients; not a secret there).
+    pub client_secret: String,
 }
 
 impl Provider {
@@ -62,6 +65,7 @@ impl Provider {
             also_consent: crate::graph::SCOPE.into(),
             authorize_params: vec![("prompt", "select_account")],
             refresh_with_scope: true,
+            client_secret: String::new(),
         }
     }
 
@@ -87,6 +91,7 @@ impl Provider {
             // A refresh token only comes with offline access, and again only on consent.
             authorize_params: vec![("access_type", "offline"), ("prompt", "consent")],
             refresh_with_scope: false,
+            client_secret: String::new(),
         }
     }
 
@@ -400,19 +405,18 @@ fn page(title: &str, text: &str) -> String {
 
 /// Trade an authorization code for tokens (PKCE, public client).
 pub async fn exchange(http: &reqwest::Client, provider: &Provider, client_id: &str, a: &Authorized) -> Result<Tokens> {
-    token_request(
-        http,
-        provider,
-        &[
-            ("client_id", client_id),
-            ("grant_type", "authorization_code"),
-            ("code", &a.code),
-            ("redirect_uri", &a.redirect_uri),
-            ("code_verifier", &a.verifier),
-            ("scope", &provider.scope),
-        ],
-    )
-    .await
+    let mut form = vec![
+        ("client_id", client_id),
+        ("grant_type", "authorization_code"),
+        ("code", &a.code),
+        ("redirect_uri", &a.redirect_uri),
+        ("code_verifier", &a.verifier),
+        ("scope", &provider.scope),
+    ];
+    if !provider.client_secret.is_empty() {
+        form.push(("client_secret", &provider.client_secret));
+    }
+    token_request(http, provider, &form).await
 }
 
 /// A new access token for `scope` (one service's scopes) from a refresh token.
@@ -420,6 +424,9 @@ pub async fn refresh(http: &reqwest::Client, provider: &Provider, client_id: &st
     let mut form = vec![("client_id", client_id), ("grant_type", "refresh_token"), ("refresh_token", refresh_token)];
     if provider.refresh_with_scope {
         form.push(("scope", scope));
+    }
+    if !provider.client_secret.is_empty() {
+        form.push(("client_secret", &provider.client_secret));
     }
     token_request(http, provider, &form).await
 }

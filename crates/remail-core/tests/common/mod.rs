@@ -40,6 +40,10 @@ pub struct Idp {
     pub calendar_ok: HashSet<String>,
     /// (grant type, scope) of every token request.
     pub token_requests: Vec<(String, String)>,
+    /// The client secret each Google token request carried.
+    pub client_secrets: Vec<Option<String>>,
+    /// Lifetime of Google's first access token (default an hour).
+    pub google_expires_in: Option<i64>,
 }
 pub type Shared = Arc<Mutex<Idp>>;
 
@@ -245,6 +249,7 @@ pub async fn google_token(State(s): State<Shared>, body: String) -> Response {
     let mut idp = s.lock().unwrap();
     idp.token_requests.push((form["grant_type"].clone(), form.get("scope").cloned().unwrap_or_default()));
     assert_eq!(form["client_id"], "gclient");
+    idp.client_secrets.push(form.get("client_secret").cloned());
     let err = |code: &str| (axum::http::StatusCode::BAD_REQUEST, axum::Json(serde_json::json!({"error": code, "error_description": code}))).into_response();
     match form["grant_type"].as_str() {
         "authorization_code" => {
@@ -253,7 +258,7 @@ pub async fn google_token(State(s): State<Shared>, body: String) -> Response {
                 return err("invalid_grant");
             }
             axum::Json(serde_json::json!({
-                "access_token": "gat-1", "refresh_token": "grt-1", "expires_in": 3600, "id_token": google_id_token(&email, &sub),
+                "access_token": "gat-1", "refresh_token": "grt-1", "expires_in": idp.google_expires_in.unwrap_or(3600), "id_token": google_id_token(&email, &sub),
             }))
             .into_response()
         }

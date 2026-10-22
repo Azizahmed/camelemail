@@ -40,6 +40,11 @@ pub struct OAuthApp {
     pub client_id: String,
     /// Microsoft: `common`, `organizations`, `consumers` or a tenant id.
     pub tenant: String,
+    /// Google "Desktop app" clients: the client secret Google's token
+    /// endpoint still asks for. It isn't confidential (Google ships it in
+    /// installed apps), so devices get it and talk to Google themselves.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub client_secret: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -99,7 +104,7 @@ impl Default for Providers {
             imap: true,
             manual_servers: true,
             google_app: OAuthApp::default(),
-            microsoft_app: OAuthApp { client_id: String::new(), tenant: "common".into() },
+            microsoft_app: OAuthApp { tenant: "common".into(), ..Default::default() },
             presets: Vec::new(),
         }
     }

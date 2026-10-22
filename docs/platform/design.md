@@ -816,6 +816,13 @@ If the server already has accounts, local-only accounts are offered for merge by
   requires Google's app verification **and** a yearly third-party security assessment (CASA). Until
   then, hosted Google sign-in works only for test users (max 100). On-prem "Internal" Workspace apps
   are fine.
+  - To qualify for the assessment exemption (no restricted-scope data stored on or passed through
+    our servers), Google sign-ins are **device-only** (2026-10-22): the org's Google app is a
+    "Desktop app" client whose secret devices get in `providers.googleApp.clientSecret`, each device
+    exchanges and refreshes with Google itself, `cred:<acc>` is never uploaded for Google accounts
+    (an older upload is deleted), and Google accounts' snoozes stay local. A second device shows
+    "Sign in to Google on this device". Keep it that way: Google accounts must not use server
+    send-later, Gmail `watch` push or the server code exchange on the hosted service.
 - **Push at scale.** One IMAP IDLE connection per account per worker is fine for on-prem sizes
   (hundreds or thousands). Hosted scale needs worker sharding: `push_shard = hash(user) % N`, which
   the schema allows.
