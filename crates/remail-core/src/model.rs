@@ -563,4 +563,6 @@ pub enum EngineEvent {
     EventReminder { summary: String, start_ms: i64, location: String, all_day: bool, day: String },
     /// Preferences or shortcuts changed on another device: reload them.
     SettingsChanged,
+    /// The organisation's AI setup (or this device's copy of its key) changed.
+    AiChanged,
 }

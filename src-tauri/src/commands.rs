@@ -8,10 +8,9 @@ use std::path::PathBuf;
 use base64::Engine as _;
 use std::sync::Arc;
 
-use remail_core::ai::AiSettings;
 use remail_core::assistant::ChatEvent;
 use remail_core::engine::{
-    friendly_error, AiOutput, AiTask, AppSettings, McpSettings, McpStatus, ThreadAction, ThreadRef, UnsubscribeResult,
+    friendly_error, AiOutput, AiStatus, AiTask, AppSettings, McpSettings, McpStatus, ThreadAction, ThreadRef, UnsubscribeResult,
 };
 use remail_core::mcp::client::McpTransport;
 use remail_core::mcp::import::ImportedServer;
@@ -134,8 +133,6 @@ handlers![
     sender_rules,
     ai_settings,
     set_ai_settings,
-    ai_models,
-    ai_test,
     ai_run,
     ai_cancel,
     ai_chat,
@@ -169,6 +166,13 @@ handlers![
     cloud_migration,
     cloud_migrate,
     cloud_sync_now,
+    admin_config,
+    admin_set_providers,
+    admin_set_ai,
+    admin_ai_models,
+    admin_ai_test,
+    admin_users,
+    admin_set_role,
     ui_prefs,
     set_ui_prefs,
 ];
@@ -769,42 +773,32 @@ async fn sender_rules(state: State<'_, AppState>) -> R<Vec<SenderRule>> {
 // AI assistant
 // ---------------------------------------------------------------------------
 
-#[derive(Serialize, Clone)]
+/// The assistant as it runs here: the organisation's provider and model
+/// with this user's own options.
+#[tauri::command]
+async fn ai_settings(state: State<'_, AppState>) -> R<AiStatus> {
+    blocking(&state, |e| Ok(e.ai_status())).await
+}
+
+/// The user's own AI options. The provider, model and key are the
+/// organisation's (Settings › Admin › AI assistant).
+#[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AiSettingsView {
-    settings: AiSettings,
-    has_key: bool,
-}
-
-fn ai_view(e: &Engine) -> AiSettingsView {
-    AiSettingsView { settings: e.ai_settings(), has_key: e.ai_has_key() }
+pub struct AiPrefs {
+    enabled: bool,
+    instructions: String,
+    smart_sort: bool,
 }
 
 #[tauri::command]
-async fn ai_settings(state: State<'_, AppState>) -> R<AiSettingsView> {
-    blocking(&state, |e| Ok(ai_view(e))).await
-}
-
-/// `api_key`: None keeps the saved key, "" removes it.
-#[tauri::command]
-async fn set_ai_settings(app: AppHandle, state: State<'_, AppState>, settings: AiSettings, api_key: Option<String>) -> R<AiSettingsView> {
+async fn set_ai_settings(app: AppHandle, state: State<'_, AppState>, prefs: AiPrefs) -> R<AiStatus> {
     let view = blocking(&state, move |e| {
-        e.set_ai_settings(&settings, api_key.as_deref())?;
-        Ok(ai_view(e))
+        e.set_ai_prefs(prefs.enabled, &prefs.instructions, prefs.smart_sort)?;
+        Ok(e.ai_status())
     })
     .await?;
     let _ = app.emit("ai-settings-changed", &view);
     Ok(view)
-}
-
-#[tauri::command]
-async fn ai_models(state: State<'_, AppState>, settings: AiSettings, api_key: Option<String>) -> R<Vec<String>> {
-    state.engine.ai_models(settings, api_key).await.map_err(err)
-}
-
-#[tauri::command]
-async fn ai_test(state: State<'_, AppState>, settings: AiSettings, api_key: Option<String>) -> R<String> {
-    state.engine.ai_test(settings, api_key).await.map_err(err)
 }
 
 /// Run a writing task; text streams through `on_text`.
@@ -998,7 +992,8 @@ async fn weather_places(state: State<'_, AppState>, query: String) -> R<Vec<Plac
 
 use remail_core::cloud::{CloudError, CloudStatus, LoginResult, MigrationInfo, ProviderView};
 use remail_core::engine::{UiPrefs, UiPrefsPatch};
-use remail_core::proto::api::{BackupCodes, Device, Me, Meta, SignupRequest, SignupResponse, TotpSetup};
+use remail_core::proto::api::{AdminConfig, AdminUser, BackupCodes, Device, Me, Meta, SignupRequest, SignupResponse, TotpSetup};
+use remail_core::proto::org::{OrgAi, Providers};
 
 fn cerr(e: CloudError) -> String {
     e.to_string()
@@ -1121,6 +1116,47 @@ async fn cloud_migrate(state: State<'_, AppState>, upload: bool) -> R<()> {
 #[tauri::command]
 async fn cloud_sync_now(state: State<'_, AppState>) -> R<()> {
     state.cloud.sync_now().await.map_err(cerr)
+}
+
+// ---------------------------------------------------------------------------
+// Admin (owners and admins of the organisation; the server refuses others).
+// Secrets are write-only: `null` keeps the saved one, "" clears it.
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn admin_config(state: State<'_, AppState>) -> R<AdminConfig> {
+    state.cloud.admin_config().await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn admin_set_providers(state: State<'_, AppState>, providers: Providers, google_client_secret: Option<String>) -> R<AdminConfig> {
+    state.cloud.admin_set_providers(providers, google_client_secret).await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn admin_set_ai(state: State<'_, AppState>, ai: OrgAi, api_key: Option<String>) -> R<AdminConfig> {
+    state.cloud.admin_set_ai(ai, api_key).await.map_err(cerr)
+}
+
+/// Models the provider offers (the setup may be unsaved; no key = the saved one).
+#[tauri::command]
+async fn admin_ai_models(state: State<'_, AppState>, ai: OrgAi, api_key: Option<String>) -> R<Vec<String>> {
+    state.cloud.admin_ai_models(ai, api_key).await.map_err(err)
+}
+
+#[tauri::command]
+async fn admin_ai_test(state: State<'_, AppState>, ai: OrgAi, api_key: Option<String>) -> R<String> {
+    state.cloud.admin_ai_test(ai, api_key).await.map_err(err)
+}
+
+#[tauri::command]
+async fn admin_users(state: State<'_, AppState>, query: Option<String>) -> R<Vec<AdminUser>> {
+    state.cloud.admin_users(query.as_deref()).await.map_err(cerr)
+}
+
+#[tauri::command]
+async fn admin_set_role(state: State<'_, AppState>, id: String, role: String) -> R<AdminUser> {
+    state.cloud.admin_set_role(&id, &role).await.map_err(cerr)
 }
 
 /// Shortcuts, hidden sidebar entries and the last compose account (synced).

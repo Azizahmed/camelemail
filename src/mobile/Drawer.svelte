@@ -53,7 +53,7 @@
     showView(L.INBOX, id);
   }
 
-  // The mailbox picker under the title: "All inboxes" or one mailbox.
+  // The mailbox picker beside the title: "All inboxes" or one mailbox.
   let pickerOpen = $state(false);
   let picker: Sheet | undefined = $state();
   const current = $derived(acc ? mail.accounts.find((a) => a.id === acc) : undefined);
@@ -66,17 +66,31 @@
   const fmt = (n: number) => (n > 99 ? "99+" : String(n));
 </script>
 
+<!-- "All inboxes": the mailboxes' colours stacked (the first three). -->
+{#snippet allDots()}
+  <span class="stack" aria-hidden="true">
+    {#each mail.accounts.slice(0, 3) as a (a.id)}<span class="dot" style:background={a.color}></span>{/each}
+  </span>
+{/snippet}
+
 <div class="m-scrim" onclick={() => back()} role="presentation"></div>
 <aside class="drawer" aria-label={t("m.drawer.label")}>
-  <h2>Camel Mail</h2>
-
-  {#if mail.accounts.length > 1}
-    <button class="mailbox" aria-haspopup="dialog" onclick={() => (pickerOpen = true)}>
-      {#if current}<span class="dot" style:background={current.color}></span>{/if}
-      <span class="label"><bdi>{current ? accountName(current) : t("m.drawer.allInboxes")}</bdi></span>
-      <ChevronDown size={16} strokeWidth={1.6} />
-    </button>
-  {/if}
+  <div class="head">
+    <img class="logo" src="/brand/camel-mail-icon.png" alt="" />
+    <h2>Camel Mail</h2>
+    {#if mail.accounts.length > 1}
+      <!-- Only the current choice's colour: the sheet names the mailboxes. -->
+      <button
+        class="mailbox"
+        aria-haspopup="dialog"
+        aria-label={current ? t("m.drawer.mailboxIs", { name: accountName(current) }) : t("m.drawer.allInboxes")}
+        onclick={() => (pickerOpen = true)}
+      >
+        {#if current}<span class="dot" style:background={current.color}></span>{:else}{@render allDots()}{/if}
+        <ChevronDown size={14} strokeWidth={1.8} />
+      </button>
+    {/if}
+  </div>
 
   <div class="items">
     {#each STANDARD as id (id)}
@@ -119,15 +133,13 @@
     <button class="m-icon-btn" aria-label={t("mset.title")} onclick={() => open(() => onsettings())}><Settings size={21} strokeWidth={1.5} /></button>
     {#if mail.ai.ready}
       <button class="m-primary soft pill" onclick={() => open(() => push({ name: "assistant" }))}><Sparkles size={16} strokeWidth={1.6} /> {t("m.drawer.assistant")}</button>
-    {:else}
-      <button class="m-primary soft pill" onclick={() => open(() => push({ name: "calendar" }))}><CalendarDays size={16} strokeWidth={1.6} /> {t("m.view.calendar")}</button>
     {/if}
   </div>
 </aside>
 
 <Sheet bind:this={picker} bind:open={pickerOpen} title={t("m.drawer.mailboxes")}>
   <button class="m-sheet-item" class:on={acc === null} onclick={() => choose(null)}>
-    <span class="all-dot"></span><span class="label">{t("m.drawer.allInboxes")}</span>
+    {@render allDots()}<span class="label">{t("m.drawer.allInboxes")}</span>
     {#if acc === null}<Check size={18} strokeWidth={1.8} />{/if}
   </button>
   {#each mail.accounts as a (a.id)}
@@ -157,49 +169,81 @@
       opacity: 0.5;
     }
   }
-  h2 {
-    margin: 21px 28px 18px;
-    font-size: 25px;
-    font-weight: 600;
-    letter-spacing: 0.2px;
-  }
-  /* The mailbox picker right under the title. */
-  .mailbox {
-    align-self: flex-start;
+  /* One row: logo, name, then the mailbox picker. */
+  .head {
+    flex: none;
     display: flex;
     align-items: center;
-    gap: 8px;
-    max-width: calc(100% - 32px);
-    height: 34px;
-    margin: -10px 16px 12px;
-    padding: 0 10px 0 12px;
+    gap: 10px;
+    min-width: 0;
+    margin: 16px 0 12px;
+    margin-inline: 20px 16px;
+  }
+  .logo {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+  }
+  h2 {
+    flex: 0 1 auto;
+    min-width: 0;
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.1px;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mailbox {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    height: 30px;
+    padding: 0;
+    padding-inline: 9px 6px;
     border: 1px solid var(--m-separator);
-    border-radius: 17px;
+    border-radius: 15px;
     background: transparent;
-    color: var(--m-text);
+    color: var(--m-text-2);
     font: inherit;
-    font-size: 13px;
-    text-align: start;
   }
   .mailbox:active {
     background: var(--m-pill);
   }
-  .mailbox .label {
-    flex: 0 1 auto;
-  }
   .mailbox :global(svg) {
     flex: none;
-    color: var(--m-text-2);
   }
-  .dot,
-  .all-dot {
+  .dot {
     flex: none;
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
   }
-  .all-dot {
-    border: 1.5px solid var(--m-text-2);
+  .stack {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+  }
+  /* Overlapping dots, each cut out of the one under it by a surface-coloured ring. */
+  .stack .dot {
+    box-shadow: 0 0 0 1.5px var(--m-surface);
+  }
+  /* In the sheet, the stack and the single dots take the same room so the names line up. */
+  .m-sheet-item .stack {
+    width: 22px;
+  }
+  .m-sheet-item > .dot {
+    margin-inline-end: 12px;
+  }
+  .m-sheet-item.on .stack .dot {
+    box-shadow: 0 0 0 1.5px var(--m-pill);
+  }
+  .stack .dot + .dot {
+    margin-inline-start: -4px;
   }
   .items {
     flex: 1;
@@ -268,10 +312,14 @@
     padding: 10px 18px 13px;
     border-top: 1px solid var(--m-separator);
   }
+  /* One line in both languages ("مساعد الذكاء الاصطناعي" is long). */
   .pill {
     flex: 1;
+    min-width: 0;
     height: 43px;
+    padding: 0 14px;
     border-radius: 21px;
-    font-size: 15px;
+    font-size: 14px;
+    white-space: nowrap;
   }
 </style>

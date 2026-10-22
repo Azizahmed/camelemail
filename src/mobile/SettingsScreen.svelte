@@ -4,7 +4,7 @@
   // left out.
   import {
     ArrowLeft, Bell, CalendarDays, Check, Clock, Eraser, FileText, Info, LogOut, Mailbox, MoveHorizontal, PenLine, Pin,
-    SlidersHorizontal, Sparkles, X,
+    ShieldCheck, SlidersHorizontal, Sparkles, X,
   } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { api } from "../lib/api";
@@ -44,6 +44,8 @@
     { id: "templates", icon: FileText, title: t("mset.templates") },
     { id: "snooze", icon: Clock, title: t("mset.snooze") },
     { id: "ai", icon: Sparkles, title: t("settings.ai") },
+    // Owners and administrators of the organisation only.
+    ...(me?.role === "owner" || me?.role === "admin" ? [{ id: "admin", icon: ShieldCheck, title: t("settings.admin"), sub: t("admin.sub") }] : []),
     { id: "about", icon: Info, title: t("mset.about") },
   ]);
 

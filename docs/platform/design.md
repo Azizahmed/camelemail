@@ -77,7 +77,7 @@ flowchart LR
 3. **Three code paths may decrypt user data**, and each one writes an audit row:
    - `sync` (to the user's own authenticated devices);
    - `push` (the push worker);
-   - `ai` (the AI proxy).
+   - `ai` (the AI proxy; not built: since 2026-10-22 devices call the AI provider directly, see §7.4).
 
    The admin API has no route that reads `user_sections`. A test enforces this (§13).
 4. **Offline-tolerant clients.** Sections are cached locally, encrypted with a device key held in
@@ -440,6 +440,22 @@ days, sliding, capped by the org's session policy.
 | POST | `/v1/providers/google/refresh` | `{refreshToken}` → `GoogleTokens`. Same condition: a "Web" client can't refresh without its secret, so clients whose org has `serverExchange` refresh here. Audited, rate-limited per user; tokens never logged. |
 
 ### 7.4 AI proxy
+
+> **Superseded for now (2026-10-22, the user's decision):** AI requests go from each device straight
+> to the provider, so mail never passes through the server (the same promise as Gmail's
+> device-only sign-in). The org's AI setup (`enabled, provider, baseUrl, model, maxTokens`) is part
+> of the org config (`OrgConfig.ai`, synced like the rest), and the key stays encrypted in
+> `OrgSecrets.ai.apiKey` but is **delivered to signed-in members' devices** by
+> `GET /v1/org/ai-key` → `{apiKey}` while org AI is on (admins may read it while it's off, to test
+> their setup). It is audited (`org.ai_key.read`), rate-limited per user and never logged. Devices
+> keep it in their secret store (`org-ai-key`), fetch it again when the org config version moves
+> on (saving the AI setup always bumps it) or when the provider answers 401/403, and delete it when
+> org AI is turned off or the user signs out. Each person keeps their own on/off, instructions and
+> Smart Inbox sorting (`prefs`). **Trade-off:** any member can extract the key from their device;
+> an org that can't accept that needs the proxy below.
+
+The proxy design, kept for later:
+
 | Method | Path | Request → Response |
 |---|---|---|
 | GET | `/v1/ai/status` | `{enabled, features: ["summarize","reply","compose","rewrite","chat","sort"], models: [..], defaultModel, remaining?: {requests, tokens}}` |
@@ -451,6 +467,19 @@ translation (the existing `openai_body` / `anthropic_body` / SSE parsing move in
 that the server uses).
 
 ### 7.5 Admin (role `admin` for their own org, `owner` for any org)
+
+**Built (2026-10-22)**, in the app's Settings › Admin rather than a separate console: owners and
+admins of an org (403 for everyone else, every call audited, rate-limited per user) get
+`GET /v1/admin/config` (providers + AI setup + `{googleSecretSet, aiKeySet}`; secrets write-only),
+`PUT /v1/admin/providers` (`{providers, googleClientSecret}`), `PUT /v1/admin/ai` (`{ai, apiKey}`;
+for both secrets `null` keeps, `""` clears, a string replaces), `GET /v1/admin/users?query`
+(account metadata only) and `PUT /v1/admin/users/{id}/role` (`admin`/`user`; owners can't be
+changed through the API and the last owner/admin can't be demoted). Owners of the hosted public
+org come from `REMAIL_ADMIN_EMAILS`. The Google secret saved here is the "Desktop app" secret in
+`googleApp.clientSecret` (device-only Google, §15), never `OrgSecrets.google_client_secret`. The
+`REMAIL_GOOGLE_*` / `REMAIL_MICROSOFT_*` variables only seed an org whose client ID is empty. The
+rest of this table is still to come.
+
 | Method | Path | Notes |
 |---|---|---|
 | GET/PATCH | `/v1/admin/org` | name, branding (logo upload ≤ 256 KiB), allowed domains, sign-up mode |
@@ -846,3 +875,12 @@ If the server already has accounts, local-only accounts are offered for merge by
   now. The existing app gets its own translation milestone after M2.
 - **Q4 hosted SMTP relay.** Still open. It is configured through `REMAIL_SMTP_*`. Without it, links
   are logged in debug builds and shown in the console on-prem.
+
+### 2026-10-22
+
+- **AI goes direct.** Devices call the AI provider themselves with the org's key, delivered by
+  `GET /v1/org/ai-key` (§7.4): mail stays off our servers, at the cost that members can extract the
+  key. The AI proxy (M4) waits until an org needs the key kept from its members.
+- **Admin lives in the app.** Settings › Admin (desktop and phone), shown to owners and admins only:
+  AI assistant, email providers and admins (§7.5). Settings › AI assistance keeps each person's own
+  options only.

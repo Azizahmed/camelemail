@@ -19,6 +19,7 @@
     id,
     label,
     width,
+    size = "md",
   }: {
     value: T;
     options: { value: T; label: string }[];
@@ -27,8 +28,11 @@
     id?: string;
     /** Accessible name when no <label for> points at it. */
     label?: string;
-    /** Fixed width in px; otherwise it fills its container like an input. */
+    /** Fixed width in px; otherwise it fills its container like an input
+     *  (or, at size "sm", is as wide as its text). */
     width?: number;
+    /** "sm": a small inline control for toolbars and tab rows. */
+    size?: "md" | "sm";
   } = $props();
 
   let button: HTMLButtonElement | undefined = $state();
@@ -78,6 +82,7 @@
   {id}
   type="button"
   class="select"
+  class:sm={size === "sm"}
   class:open={!!open}
   style:width={width ? `${width}px` : null}
   {disabled}
@@ -88,7 +93,7 @@
   onkeydown={onKey}
 >
   <span class="text" dir="auto">{current?.label ?? ""}</span>
-  <ChevronDown size={14} class="chev" />
+  <ChevronDown size={size === "sm" ? 12 : 14} class="chev" />
 </button>
 
 {#if open}
@@ -132,6 +137,21 @@
     text-align: start;
     cursor: pointer;
     transition: border-color var(--fast), box-shadow var(--fast);
+  }
+  .select.sm {
+    width: auto;
+    max-width: 100%;
+    height: 26px;
+    gap: 4px;
+    padding-block: 0;
+    padding-inline: 9px 6px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+  .select.sm:focus-visible,
+  .select.sm.open {
+    box-shadow: 0 0 0 2px var(--accent-soft);
   }
   .select:hover:not(:disabled) {
     border-color: var(--content-muted);

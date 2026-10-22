@@ -284,3 +284,49 @@ async fn microsoft_app_from_the_environment() {
     assert_eq!(remail_server::orgs::config(&s.db, &s.state.env, &org).await.unwrap().0, v);
     s.finish().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_environment_only_seeds_empty_apps() {
+    let Some(s) = start_with(Mode::Hosted, |c| {
+        c.google_client_id = Some("env.apps.googleusercontent.com".into());
+        c.google_client_secret = Some("env-secret".into());
+        c.microsoft_client_id = Some("11111111-2222-3333-4444-555555555555".into());
+        c.microsoft_tenant = Some("organizations".into());
+    })
+    .await
+    else {
+        return;
+    };
+    let org = remail_server::orgs::by_slug(&s.db, "public").await.unwrap().unwrap();
+    let (_, seeded) = remail_server::orgs::config(&s.db, &s.state.env, &org).await.unwrap();
+    assert_eq!(seeded.providers.google_app.client_id, "env.apps.googleusercontent.com");
+    assert_eq!(seeded.providers.microsoft_app.tenant, "organizations");
+
+    // An admin replaces both apps and turns Google off.
+    let mut c = seeded.clone();
+    c.providers.google = false;
+    c.providers.google_app.client_id = "admin.apps.googleusercontent.com".into();
+    c.providers.google_app.client_secret = "admin-secret".into();
+    c.providers.microsoft_app.client_id = "99999999-8888-7777-6666-555555555555".into();
+    c.providers.microsoft_app.tenant = "common".into();
+    remail_server::orgs::set_config(&s.db, &s.state.env, &org.id, &c, "test").await.unwrap();
+    let v = remail_server::orgs::config(&s.db, &s.state.env, &org).await.unwrap().0;
+
+    // A restart with the environment still set keeps the admin's choices.
+    remail_server::orgs::startup(&s.state.cfg, &s.db, &s.state.env, false).await.unwrap();
+    let (v2, after) = remail_server::orgs::config(&s.db, &s.state.env, &org).await.unwrap();
+    assert_eq!(v2, v, "nothing saved");
+    assert_eq!(after.providers, c.providers);
+
+    // Cleared by the admin: the next start seeds it again (and leaves the toggle alone).
+    let mut cleared = after.clone();
+    cleared.providers.microsoft_app.client_id.clear();
+    remail_server::orgs::set_config(&s.db, &s.state.env, &org.id, &cleared, "test").await.unwrap();
+    remail_server::orgs::startup(&s.state.cfg, &s.db, &s.state.env, false).await.unwrap();
+    let (_, reseeded) = remail_server::orgs::config(&s.db, &s.state.env, &org).await.unwrap();
+    assert_eq!(reseeded.providers.microsoft_app.client_id, "11111111-2222-3333-4444-555555555555");
+    assert_eq!(reseeded.providers.microsoft_app.tenant, "organizations");
+    assert_eq!(reseeded.providers.google_app.client_id, "admin.apps.googleusercontent.com");
+    assert!(!reseeded.providers.google);
+    s.finish().await;
+}

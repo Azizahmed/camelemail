@@ -589,3 +589,154 @@ async fn mapping_round_trip_without_server() {
     }
     assert_eq!(view_of(&b, &b_secrets), view_of(&a, &a_secrets));
 }
+
+/// A Chat Completions endpoint that takes one key: (accepted key, the keys it saw, the bodies).
+type Llm = Arc<Mutex<(String, Vec<String>, Vec<serde_json::Value>)>>;
+
+async fn llm(accepted: &str) -> (Llm, String) {
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::response::IntoResponse;
+    let state: Llm = Arc::new(Mutex::new((accepted.to_string(), Vec::new(), Vec::new())));
+    let app = axum::Router::new()
+        .route(
+            "/v1/chat/completions",
+            axum::routing::post(|axum::extract::State(s): axum::extract::State<Llm>, headers: HeaderMap, axum::Json(body): axum::Json<serde_json::Value>| async move {
+                let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+                let mut st = s.lock().unwrap();
+                st.1.push(auth.clone());
+                st.2.push(body);
+                if auth != format!("Bearer {}", st.0) {
+                    return (StatusCode::UNAUTHORIZED, axum::Json(serde_json::json!({"error": {"message": "Incorrect API key"}}))).into_response();
+                }
+                axum::Json(serde_json::json!({"choices": [{"message": {"role": "assistant", "content": "Hi from the org model"}, "finish_reason": "stop"}]})).into_response()
+            }),
+        )
+        .with_state(state.clone());
+    let port = serve(app).await;
+    (state, format!("http://127.0.0.1:{port}/v1"))
+}
+
+async fn compose(e: &Engine) -> anyhow::Result<String> {
+    let task = engine::AiTask::Compose { account_id: None, instructions: "Say hi".into(), to: vec![], subject: String::new(), current: String::new() };
+    Ok(e.ai_run("r", task, &mut |_| {}).await?.text)
+}
+
+async fn wait_for<T>(mut f: impl FnMut() -> Option<T>) -> T {
+    for _ in 0..200 {
+        if let Some(v) = f() {
+            return v;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("timed out");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_organisations_ai_runs_with_its_key() {
+    let (m, url) = mock().await;
+    let (seen, llm_url) = llm("sk-org-1").await;
+    {
+        let mut mm = m.lock().unwrap();
+        mm.org.ai = remail_core::proto::org::OrgAi { enabled: true, provider: "openai".into(), base_url: llm_url.clone(), model: "org-model".into(), max_tokens: 1500 };
+        mm.ai_key = Some("sk-org-1".into());
+    }
+    let d = device(&url).await;
+    // What this computer had before the organisation set AI up is ignored.
+    let old = ai::AiSettings { enabled: true, provider: "anthropic".into(), base_url: "https://old.invalid".into(), model: "old".into(), ..Default::default() };
+    d.engine.set_ai_settings(&old, Some("sk-personal")).unwrap();
+    sign_in(&d).await;
+    wait_phase(&d, Phase::Ready).await;
+    let key = wait_for(|| d.secrets.get(ai::ORG_KEY_SECRET_ID).unwrap()).await;
+    assert_eq!(key, "sk-org-1");
+
+    let st = d.engine.ai_status();
+    assert!(st.managed && st.org_ready && st.has_key);
+    assert_eq!((st.settings.provider.as_str(), st.settings.base_url.as_str(), st.settings.model.as_str()), ("openai", llm_url.as_str(), "org-model"));
+    assert_eq!(st.settings.max_tokens, 1500);
+    // The user's own switch and instructions still count.
+    d.engine.set_ai_prefs(false, "Be brief.", false).unwrap();
+    assert!(!d.engine.ai_status().settings.enabled);
+    assert!(compose(&d.engine).await.unwrap_err().to_string().contains("Turn on"));
+    d.engine.set_ai_prefs(true, "Be brief.", false).unwrap();
+    let st = d.engine.ai_status();
+    assert!(st.settings.enabled && st.personal_enabled);
+    assert_eq!(st.settings.instructions, "Be brief.");
+
+    assert_eq!(compose(&d.engine).await.unwrap(), "Hi from the org model");
+    {
+        let s = seen.lock().unwrap();
+        assert_eq!(s.1, ["Bearer sk-org-1"]);
+        assert_eq!(s.2[0]["model"], "org-model");
+        assert!(s.2[0].to_string().contains("Be brief."), "personal instructions go along");
+    }
+    assert_eq!(d.secrets.get(ai::KEY_SECRET_ID).unwrap().as_deref(), Some("sk-personal"), "kept, but never used");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_ai_key_is_fetched_again_when_it_changes() {
+    let (m, url) = mock().await;
+    let (seen, llm_url) = llm("sk-org-1").await;
+    {
+        let mut mm = m.lock().unwrap();
+        mm.org.ai = remail_core::proto::org::OrgAi { enabled: true, provider: "openai".into(), base_url: llm_url, model: "org-model".into(), max_tokens: 4096 };
+        mm.ai_key = Some("sk-org-1".into());
+        mm.org_version = 3;
+    }
+    let d = ready_device(&url).await;
+    wait_for(|| d.secrets.get(ai::ORG_KEY_SECRET_ID).unwrap()).await;
+    d.engine.set_ai_prefs(true, "", false).unwrap();
+    let fetches = m.lock().unwrap().ai_key_fetches;
+    // The same config version again: no new fetch.
+    d.cloud.providers().await.unwrap();
+    assert_eq!(m.lock().unwrap().ai_key_fetches, fetches);
+
+    // The admin replaces the key: the org config version moves on.
+    {
+        let mut mm = m.lock().unwrap();
+        mm.ai_key = Some("sk-org-2".into());
+        mm.org_version = 4;
+    }
+    seen.lock().unwrap().0 = "sk-org-2".into();
+    d.cloud.providers().await.unwrap();
+    assert_eq!(d.secrets.get(ai::ORG_KEY_SECRET_ID).unwrap().as_deref(), Some("sk-org-2"));
+    assert_eq!(compose(&d.engine).await.unwrap(), "Hi from the org model");
+
+    // Replaced without this device hearing of it: the provider refuses the
+    // old key, the device fetches it again and the request goes through.
+    m.lock().unwrap().ai_key = Some("sk-org-3".into());
+    seen.lock().unwrap().0 = "sk-org-3".into();
+    assert_eq!(compose(&d.engine).await.unwrap(), "Hi from the org model");
+    assert_eq!(d.secrets.get(ai::ORG_KEY_SECRET_ID).unwrap().as_deref(), Some("sk-org-3"));
+    let auths = seen.lock().unwrap().1.clone();
+    assert_eq!(auths[auths.len() - 2..], ["Bearer sk-org-2", "Bearer sk-org-3"]);
+
+    // A key that's simply wrong: one fetch, then the provider's answer.
+    seen.lock().unwrap().0 = "sk-other".into();
+    let before = m.lock().unwrap().ai_key_fetches;
+    let e = compose(&d.engine).await.unwrap_err();
+    assert!(e.chain().any(|c| c.downcast_ref::<ai::KeyRejected>().is_some()), "{e:#}");
+    assert_eq!(m.lock().unwrap().ai_key_fetches, before + 1);
+
+    // The organisation turns AI off: the key leaves this device.
+    {
+        let mut mm = m.lock().unwrap();
+        mm.org.ai.enabled = false;
+        mm.org_version = 5;
+    }
+    d.cloud.providers().await.unwrap();
+    assert_eq!(d.secrets.get(ai::ORG_KEY_SECRET_ID).unwrap(), None);
+    let st = d.engine.ai_status();
+    assert!(!st.org_ready && !st.settings.enabled && st.personal_enabled);
+    assert!(compose(&d.engine).await.unwrap_err().to_string().contains("isn't set up for your organisation"));
+
+    // Signing out removes it too.
+    {
+        let mut mm = m.lock().unwrap();
+        mm.org.ai.enabled = true;
+        mm.org_version = 6;
+    }
+    d.cloud.providers().await.unwrap();
+    assert!(d.secrets.get(ai::ORG_KEY_SECRET_ID).unwrap().is_some());
+    d.cloud.logout().await.unwrap();
+    assert_eq!(d.secrets.get(ai::ORG_KEY_SECRET_ID).unwrap(), None);
+}

@@ -97,6 +97,10 @@ pub struct Config {
     /// tenant (`common` = personal and work accounts).
     pub microsoft_client_id: Option<String>,
     pub microsoft_tenant: Option<String>,
+    /// Hosted: addresses (lower-case) that are owners of the public org,
+    /// from `REMAIL_ADMIN_EMAILS`. Existing accounts are promoted on start;
+    /// new ones get the role when they sign up or accept an invite.
+    pub admin_emails: Vec<String>,
 }
 
 /// Issuer keys compiled in with `REMAIL_LICENCE_PUBKEYS=<b64url>,<b64url>`.
@@ -140,7 +144,14 @@ impl Config {
             google_client_secret: None,
             microsoft_client_id: None,
             microsoft_tenant: None,
+            admin_emails: Vec::new(),
         }
+    }
+
+    /// Is this address one of `REMAIL_ADMIN_EMAILS` (case-insensitive)?
+    pub fn is_admin_email(&self, email: &str) -> bool {
+        let email = email.trim();
+        self.admin_emails.iter().any(|a| a.eq_ignore_ascii_case(email))
     }
 
     pub fn from_env() -> Result<Self> {
@@ -183,6 +194,29 @@ impl Config {
         c.google_client_secret = env("REMAIL_GOOGLE_CLIENT_SECRET");
         c.microsoft_client_id = env("REMAIL_MICROSOFT_CLIENT_ID");
         c.microsoft_tenant = env("REMAIL_MICROSOFT_TENANT");
+        c.admin_emails = parse_emails(&env("REMAIL_ADMIN_EMAILS").unwrap_or_default());
         Ok(c)
+    }
+}
+
+/// `a@x.com, B@Y.com` → `["a@x.com", "b@y.com"]` (blank entries dropped).
+pub fn parse_emails(list: &str) -> Vec<String> {
+    let mut out: Vec<String> = list.split([',', ';', ' ']).map(|e| e.trim().to_lowercase()).filter(|e| e.contains('@')).collect();
+    out.dedup();
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn admin_emails_are_case_insensitive() {
+        let mut c = Config::new("postgres://x", Mode::Hosted);
+        c.admin_emails = parse_emails(" Dr.Zezo@Gmail.com ,, ops@example.com;x ");
+        assert_eq!(c.admin_emails, ["dr.zezo@gmail.com", "ops@example.com"]);
+        assert!(c.is_admin_email("DR.ZEZO@gmail.com"));
+        assert!(c.is_admin_email(" ops@example.com"));
+        assert!(!c.is_admin_email("someone@example.com"));
     }
 }

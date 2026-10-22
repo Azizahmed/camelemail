@@ -9,7 +9,9 @@ Milestones M0–M2 are in: config, migrations, envelope crypto and key tooling, 
 (sign-up, verification, login, TOTP + backup codes, refresh rotation, devices, reset, lockout),
 sections with `If-Match`, the provider allow-list, org config and providers, the Google code
 exchange and refresh (with the org's client secret), change notices over WebSocket, and on-prem
-licence enforcement. The admin console, AI proxy and push worker come later.
+licence enforcement. The admin API (`/v1/admin/*`: email providers, the org's AI assistant and its
+administrators) backs the app's Settings › Admin; the AI key reaches members' devices through
+`GET /v1/org/ai-key` (devices call the AI provider themselves). The push worker comes later.
 
 ## Run it locally
 
@@ -48,10 +50,11 @@ server on `http://127.0.0.1:8080`, key in its own volume).
 | `REMAIL_DEV_MAIL` | unset | `1` in **debug builds**: keep mail in memory at `GET /v1/dev/mail` |
 | `REMAIL_TRUST_PROXY` | unset | `1`: take the client IP from `X-Forwarded-For` (behind Caddy) |
 | `REMAIL_ORG_NAME` | `My organisation` | On-prem: name of the org created on first start |
-| `REMAIL_GOOGLE_CLIENT_ID` | unset | Hosted: Google OAuth client ("Desktop app" type) for Gmail + Google Calendar sign-in in the public org |
+| `REMAIL_GOOGLE_CLIENT_ID` | unset | Hosted: Google OAuth client ("Desktop app" type) for Gmail + Google Calendar sign-in in the public org. Seeds the org only while it has no Google client ID; after that, Settings › Admin › Email providers wins |
 | `REMAIL_GOOGLE_CLIENT_SECRET` | unset | Its client secret (an installed-app secret: sent to devices, which talk to Google themselves; needs `REMAIL_GOOGLE_CLIENT_ID` too) |
-| `REMAIL_MICROSOFT_CLIENT_ID` | unset | Hosted: Microsoft Entra app (public client) for Outlook / Microsoft 365 mail + calendar sign-in in the public org |
+| `REMAIL_MICROSOFT_CLIENT_ID` | unset | Hosted: Microsoft Entra app (public client) for Outlook / Microsoft 365 mail + calendar sign-in in the public org. Seeds the org only while it has no Microsoft client ID (same as Google) |
 | `REMAIL_MICROSOFT_TENANT` | `common` | Its tenant (`common`, `organizations`, `consumers` or a tenant id) |
+| `REMAIL_ADMIN_EMAILS` | unset | Hosted: comma-separated addresses (any case) that own the public org. On every start, existing accounts with these addresses become `owner`; anyone who signs up or accepts an invite with one gets `owner` |
 | `REMAIL_GOOGLE_TOKEN_URL` | Google's | Token endpoint for the server-side code exchange (tests) |
 | `REMAIL_BACKUP_PASSPHRASE` | prompt | Passphrase for `key backup` / `key restore` |
 | `REMAIL_LICENCE_PUBKEYS` | unset | **Build time.** Comma-separated base64url Ed25519 issuer keys. Unset: no licence enforcement |
@@ -100,4 +103,7 @@ Microsoft sign-in: `REMAIL_PLATFORM_IT=1 cargo test -p remail-core --test platfo
 - `auth/`: sign-up, login, sessions, TOTP; `orgs.rs`, `org_api.rs`: org rows, config, providers.
 - `notices.rs`: WebSocket notices, in-process broadcast plus Postgres `NOTIFY` across processes.
 - `licence.rs`: on-prem licence state, seat limit, clock-rollback guard.
-- `admin/`: empty until M3.
+- `admin/`: the admin API for owners and admins of an org (403 for everyone else, every call
+  audited): `GET /v1/admin/config`, `PUT /v1/admin/providers`, `PUT /v1/admin/ai`,
+  `GET /v1/admin/users`, `PUT /v1/admin/users/{id}/role`. Account metadata only, secrets
+  write-only. `tests/admin_isolation.rs` checks it never reaches user data, `tests/admin.rs` the rest.

@@ -35,6 +35,7 @@ It also needs a PostgreSQL database (16 or newer).
 | `REMAIL_MODE` | `hosted` (the image default) or `onprem` |
 | `REMAIL_SMTP_URL`, `REMAIL_MAIL_FROM` | Optional. Without them, nothing is e-mailed (see "First account"). |
 | `REMAIL_SNDR_API_KEY` | Alternative to SMTP: an API key for SNDR, CranL's e-mail service (`REMAIL_MAIL_FROM` must use a domain verified there). **Secret.** |
+| `REMAIL_ADMIN_EMAILS` | Optional. Comma-separated addresses of the service's owners: their accounts become `owner` on every start (and at sign-up), so they see Settings › Admin in the app. |
 
 The image already sets `PORT=8080`, `REMAIL_TRUST_PROXY=1` (client addresses come from the
 platform's proxy) and plain-text logs.

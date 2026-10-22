@@ -1,6 +1,7 @@
 //! A small stand-in for the Remail server: sign-in with rotating refresh
 //! tokens, sections with versions and `If-Match`, org config and providers,
-//! and Google's server-side code exchange. Enough for the client's sync.
+//! the org AI key, and Google's server-side code exchange. Enough for the
+//! client's sync.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -25,6 +26,12 @@ pub struct Mock {
     pub access: HashMap<String, String>,
     pub revoked: HashSet<String>,
     pub org: OrgConfig,
+    /// Org config version (at least 1).
+    pub org_version: i64,
+    /// The org's AI key (`/v1/org/ai-key`).
+    pub ai_key: Option<String>,
+    /// How often devices fetched it.
+    pub ai_key_fetches: usize,
     pub google_server_exchange: bool,
     /// Before the next write of a section, this document lands first (another device's write).
     pub race: HashMap<String, SectionDoc>,
@@ -140,7 +147,20 @@ async fn get_me(State(s): State<SharedMock>, headers: HeaderMap) -> Response {
 async fn org_config(State(s): State<SharedMock>, headers: HeaderMap) -> Response {
     let m = s.lock().unwrap();
     authed!(m, headers);
-    Json(OrgConfigResponse { version: 1, config: m.org.clone() }).into_response()
+    Json(OrgConfigResponse { version: m.org_version.max(1), config: m.org.clone() }).into_response()
+}
+
+async fn org_ai_key(State(s): State<SharedMock>, headers: HeaderMap) -> Response {
+    let mut m = s.lock().unwrap();
+    authed!(m, headers);
+    m.ai_key_fetches += 1;
+    if !m.org.ai.enabled {
+        return err(ErrorCode::Forbidden, "AI is off");
+    }
+    match m.ai_key.clone() {
+        Some(k) => Json(OrgAiKey { api_key: k }).into_response(),
+        None => err(ErrorCode::NotFound, "no key"),
+    }
 }
 
 async fn providers(State(s): State<SharedMock>, headers: HeaderMap) -> Response {
@@ -214,6 +234,7 @@ pub fn router(state: SharedMock) -> Router {
         .route("/v1/auth/logout", post(logout))
         .route("/v1/me", get(get_me))
         .route("/v1/org/config", get(org_config))
+        .route("/v1/org/ai-key", get(org_ai_key))
         .route("/v1/providers", get(providers))
         .route("/v1/providers/google/token", post(google_token))
         .route("/v1/providers/google/refresh", post(google_refresh))

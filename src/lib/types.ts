@@ -339,7 +339,9 @@ export type EngineEvent =
   | { type: "openCompose"; draftId: string }
   | { type: "autoCleaned"; threads: ThreadRef[]; messages: string[]; action: "trash" | "archive" }
   /** `prefs` or `shortcuts` changed on another device: reload settings and UI prefs. */
-  | { type: "settingsChanged" };
+  | { type: "settingsChanged" }
+  /** The organisation's AI setup, or this device's copy of its key, changed. */
+  | { type: "aiChanged" };
 
 /** System label ids (crates/remail-core/src/model.rs `labels`). */
 export const L = {
@@ -370,9 +372,25 @@ export interface AiSettings {
   smartSort: boolean;
 }
 
+/** The assistant as it runs here (engine `AiStatus`). */
 export interface AiSettingsView {
+  /** What requests use: the organisation's provider, URL and model with this user's own options. */
   settings: AiSettings;
+  /** This device holds the key requests use. */
   hasKey: boolean;
+  /** The user's own on/off switch (kept while the organisation has AI off). */
+  personalEnabled: boolean;
+  /** Signed in: the organisation chooses the provider. */
+  managed: boolean;
+  /** The organisation has set AI up (on, with an API URL and a model). */
+  orgReady: boolean;
+}
+
+/** The user's own AI options (the rest is the organisation's). */
+export interface AiPrefs {
+  enabled: boolean;
+  instructions: string;
+  smartSort: boolean;
 }
 
 export type AiTask =
@@ -550,6 +568,57 @@ export interface ProviderOption {
   manualServers: boolean;
   presets: ServerPreset[];
   serverExchange: boolean;
+}
+
+/** The organisation's AI assistant (proto `org::OrgAi`); the key isn't part of it. */
+export interface OrgAi {
+  enabled: boolean;
+  provider: "openai" | "anthropic";
+  baseUrl: string;
+  model: string;
+  maxTokens: number;
+}
+
+/** An OAuth app of the organisation (proto `org::OAuthApp`). */
+export interface OAuthApp {
+  clientId: string;
+  /** Microsoft: common | organizations | consumers | a tenant ID or domain. */
+  tenant: string;
+  clientSecret?: string;
+}
+
+/** The organisation's email providers (proto `org::Providers`). */
+export interface OrgProviders {
+  google: boolean;
+  microsoft: boolean;
+  imap: boolean;
+  /** With `imap`: may people type any server, or only pick a preset? */
+  manualServers: boolean;
+  googleApp: OAuthApp;
+  microsoftApp: OAuthApp;
+  presets: ServerPreset[];
+}
+
+/** `GET /v1/admin/config`: secrets only as "set". */
+export interface AdminConfig {
+  version: number;
+  providers: OrgProviders;
+  ai: OrgAi;
+  googleSecretSet: boolean;
+  aiKeySet: boolean;
+}
+
+/** One person of the organisation (account metadata only). */
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  role: "owner" | "admin" | "user";
+  createdAt: number;
+  lastActiveAt: number | null;
+  verified: boolean;
+  disabled: boolean;
+  totp: boolean;
 }
 
 export interface MigrationInfo {

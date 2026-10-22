@@ -20,7 +20,7 @@ pub const CALENDAR_SCOPE: &str = "https://graph.microsoft.com/Calendars.ReadWrit
 pub fn microsoft_org() -> Option<remail_core::engine::OrgAccess> {
     let mut providers = remail_core::proto::org::Providers::default();
     providers.microsoft_app.client_id = " client-123 ".into();
-    Some(remail_core::engine::OrgAccess { providers, google_server_exchange: false })
+    Some(remail_core::engine::OrgAccess { providers, google_server_exchange: false, ai: Default::default() })
 }
 
 pub struct Quiet;

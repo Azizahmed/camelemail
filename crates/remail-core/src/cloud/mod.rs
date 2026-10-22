@@ -34,7 +34,7 @@ use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use remail_proto::api::*;
-use remail_proto::org::{OAuthApp, ProviderKind, ServerPreset};
+use remail_proto::org::{OAuthApp, OrgAi, ProviderKind, Providers, ServerPreset};
 use remail_proto::sections;
 use remail_proto::sync::Clock;
 
@@ -54,6 +54,8 @@ const SERVER_KEY: &str = "cloud_server";
 const ME_KEY: &str = "cloud_me";
 /// Settings key: `Flags`.
 const FLAGS_KEY: &str = "cloud_flags";
+/// Settings key: the org config version this device's AI key was fetched at.
+const AI_KEY_VERSION: &str = "cloud_ai_key_version";
 /// Cache rows that aren't sections.
 const ORG_ROW: &str = "org";
 const PROVIDERS_ROW: &str = "providers";
@@ -362,6 +364,14 @@ impl CloudLink for Link {
             Ok(c.authed::<GoogleTokens>(Method::POST, "/v1/providers/google/refresh", Some(&GoogleRefresh { refresh_token })).await?)
         })
     }
+
+    fn refresh_ai_key(&self) -> futures::future::BoxFuture<'static, anyhow::Result<Option<String>>> {
+        let weak = self.0.clone();
+        Box::pin(async move {
+            let c = weak.upgrade().context("signed out of Remail")?;
+            Ok(c.fetch_ai_key().await?)
+        })
+    }
 }
 
 /// The Remail server connection. Cheap to clone.
@@ -623,6 +633,68 @@ impl Cloud {
         Ok(list.into_iter().map(ProviderView::from).collect())
     }
 
+    // ---- admin (owners and admins; the server answers 403 to anyone else)
+
+    /// The organisation's providers and AI setup (secrets only as "set").
+    pub async fn admin_config(&self) -> Result<AdminConfig, CloudError> {
+        self.inner.authed(Method::GET, "/v1/admin/config", None::<&()>).await
+    }
+
+    /// Save the email providers. `google_client_secret`: None keeps it,
+    /// `""` clears it. This device takes the change up at once.
+    pub async fn admin_set_providers(&self, providers: Providers, google_client_secret: Option<String>) -> Result<AdminConfig, CloudError> {
+        let c = &self.inner;
+        let req = AdminProvidersUpdate { providers, google_client_secret };
+        let out: AdminConfig = c.authed(Method::PUT, "/v1/admin/providers", Some(&req)).await?;
+        c.after_admin_change().await;
+        Ok(out)
+    }
+
+    /// Save the AI setup. `api_key`: None keeps it, `""` clears it.
+    pub async fn admin_set_ai(&self, ai: OrgAi, api_key: Option<String>) -> Result<AdminConfig, CloudError> {
+        let c = &self.inner;
+        let req = AdminAiUpdate { ai, api_key };
+        let out: AdminConfig = c.authed(Method::PUT, "/v1/admin/ai", Some(&req)).await?;
+        c.after_admin_change().await;
+        Ok(out)
+    }
+
+    /// The models a provider offers, for an AI setup that may be unsaved.
+    /// Without `api_key`, the organisation's saved key.
+    pub async fn admin_ai_models(&self, ai: OrgAi, api_key: Option<String>) -> anyhow::Result<Vec<String>> {
+        let (settings, key) = self.inner.admin_ai_trial(ai, api_key).await?;
+        self.inner.engine.ai_models(settings, key).await
+    }
+
+    /// A tiny request with an AI setup that may be unsaved.
+    pub async fn admin_ai_test(&self, ai: OrgAi, api_key: Option<String>) -> anyhow::Result<String> {
+        let (settings, key) = self.inner.admin_ai_trial(ai, api_key).await?;
+        self.inner.engine.ai_test(settings, key).await
+    }
+
+    /// The organisation's people (account metadata only), owners and admins first.
+    pub async fn admin_users(&self, query: Option<&str>) -> Result<Vec<AdminUser>, CloudError> {
+        let path = match query.map(str::trim).filter(|q| !q.is_empty()) {
+            Some(q) => format!("/v1/admin/users?query={}", url_encode(q)),
+            None => "/v1/admin/users".into(),
+        };
+        self.inner.authed(Method::GET, &path, None::<&()>).await
+    }
+
+    /// Make someone an admin (`admin`) or take it back (`user`).
+    pub async fn admin_set_role(&self, user_id: &str, role: &str) -> Result<AdminUser, CloudError> {
+        let c = &self.inner;
+        let id: String = user_id.chars().filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_' || *ch == '-').collect();
+        let out: AdminUser = c.authed(Method::PUT, &format!("/v1/admin/users/{id}/role"), Some(&RoleUpdate { role: role.into() })).await?;
+        // One's own role changed: the profile says so.
+        if c.state.lock().unwrap().session.as_ref().is_some_and(|s| s.user_id == out.id) {
+            if let Ok(me) = c.authed::<Me>(Method::GET, "/v1/me", None::<&()>).await {
+                c.remember_me(&me);
+            }
+        }
+        Ok(out)
+    }
+
     /// How much setup is here and on the server (for the "move this
     /// computer's setup?" choice).
     pub async fn migration(&self) -> Result<MigrationInfo, CloudError> {
@@ -661,7 +733,18 @@ fn org_access(org: &OrgConfigResponse, providers: Option<&[ProviderOption]>) -> 
     OrgAccess {
         providers: org.config.providers.clone(),
         google_server_exchange: providers.into_iter().flatten().any(|p| p.kind == ProviderKind::Google && p.server_exchange),
+        ai: org.config.ai.clone(),
     }
+}
+
+/// Percent-encodes a query value.
+fn url_encode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 impl CloudInner {
@@ -870,11 +953,98 @@ impl CloudInner {
         self.cache.save_json(store, PROVIDERS_ROW, &providers, org.version)?;
         self.engine.set_org(Some(org_access(&org, Some(&providers))));
         self.org_stale.store(false, Ordering::SeqCst);
+        let ai = org.config.ai.clone();
+        let version = org.version;
         self.update(|st| {
             st.org = Some(org);
             st.providers = Some(providers);
         });
+        self.sync_ai_key(&ai, version).await;
         Ok(())
+    }
+
+    /// Keep this device's copy of the organisation's AI key current: fetched
+    /// when org AI is on and the config version moved on (a new key bumps
+    /// it), removed when org AI is off.
+    async fn sync_ai_key(self: &Arc<Self>, ai: &OrgAi, version: i64) {
+        let store = self.engine.store();
+        let secrets = self.engine.secrets();
+        if !ai.enabled {
+            let had = secrets.get(crate::ai::ORG_KEY_SECRET_ID).ok().flatten().is_some();
+            if let Err(e) = secrets.delete(crate::ai::ORG_KEY_SECRET_ID) {
+                tracing::warn!("couldn't remove the organisation's AI key: {e:#}");
+            }
+            let _ = store.delete_setting(AI_KEY_VERSION);
+            if had {
+                self.engine.ai_changed();
+            }
+            return;
+        }
+        let at: Option<i64> = store.setting(AI_KEY_VERSION);
+        if at == Some(version) {
+            return;
+        }
+        if let Err(e) = self.fetch_ai_key().await {
+            tracing::info!("couldn't fetch the organisation's AI key: {e}");
+        }
+    }
+
+    /// `GET /v1/org/ai-key` into the secret store (none: the organisation
+    /// has no key, e.g. a local model). Returns the key.
+    async fn fetch_ai_key(self: &Arc<Self>) -> Result<Option<String>, CloudError> {
+        let version = self.state.lock().unwrap().org.as_ref().map(|o| o.version);
+        let key = match self.authed::<OrgAiKey>(Method::GET, "/v1/org/ai-key", None::<&()>).await {
+            Ok(k) => Some(k.api_key),
+            Err(e) if matches!(e.code.as_str(), "not_found" | "forbidden") => None,
+            Err(e) => return Err(e),
+        };
+        let secrets = self.engine.secrets();
+        let before = secrets.get(crate::ai::ORG_KEY_SECRET_ID).ok().flatten();
+        let saved = match &key {
+            Some(k) => secrets.set(crate::ai::ORG_KEY_SECRET_ID, k),
+            None => secrets.delete(crate::ai::ORG_KEY_SECRET_ID),
+        };
+        saved.map_err(|e| CloudError::new("internal", format!("couldn't keep the AI key: {e:#}")))?;
+        if let Some(v) = version {
+            let _ = self.engine.store().set_setting(AI_KEY_VERSION, &v);
+        }
+        if before != key {
+            self.engine.ai_changed();
+        }
+        Ok(key)
+    }
+
+    /// An admin saved org settings: take them up here now (other devices get
+    /// the change notice).
+    async fn after_admin_change(self: &Arc<Self>) {
+        if let Err(e) = self.refresh_org().await {
+            tracing::info!("couldn't reload the organisation's settings: {e}");
+        }
+    }
+
+    /// Settings and key for trying an AI setup an admin may not have saved.
+    async fn admin_ai_trial(self: &Arc<Self>, ai: OrgAi, api_key: Option<String>) -> anyhow::Result<(crate::ai::AiSettings, Option<String>)> {
+        let key = match api_key.filter(|k| !k.trim().is_empty()) {
+            Some(k) => Some(k.trim().to_string()),
+            // The saved key (admins may read it while AI is off).
+            None => match self.authed::<OrgAiKey>(Method::GET, "/v1/org/ai-key", None::<&()>).await {
+                Ok(k) => Some(k.api_key),
+                Err(e) if e.code == "not_found" => None,
+                Err(e) => return Err(e.into()),
+            },
+        };
+        let settings = crate::ai::AiSettings {
+            enabled: true,
+            provider: ai.provider,
+            base_url: ai.base_url,
+            model: ai.model,
+            max_tokens: ai.max_tokens,
+            ..Default::default()
+        };
+        if key.is_none() && !settings.is_local() {
+            anyhow::bail!("Enter the API key first.");
+        }
+        Ok((settings, key))
     }
 
     /// Background work of the current session, created on first use.
@@ -933,8 +1103,11 @@ impl CloudInner {
         }
         self.engine.stop_mcp().await;
         self.engine.set_org(None);
+        if let Err(e) = self.engine.secrets().delete(crate::ai::ORG_KEY_SECRET_ID) {
+            tracing::warn!("couldn't delete the organisation's AI key: {e:#}");
+        }
         let store = self.engine.store();
-        for key in [ME_KEY, FLAGS_KEY] {
+        for key in [ME_KEY, FLAGS_KEY, AI_KEY_VERSION] {
             let _ = store.delete_setting(key);
         }
         self.update(|st| {

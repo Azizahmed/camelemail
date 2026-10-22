@@ -31,23 +31,27 @@
     </button>
   </div>
   <div class="other-pick" class:on={mail.smart.tab === "other"}>
-    <Select value={picked} options={OPTIONS} width={136} label="Other: category" onchange={(v) => setSmartTab("other", v === "all" ? null : v)} />
+    <Select size="sm" value={picked} options={OPTIONS} label="Other: category" onchange={(v) => setSmartTab("other", v === "all" ? null : v)} />
   </div>
 </div>
 
 <style>
+  /* One row: the category picker sits right after the Other tab and
+     shrinks (its text ellipsizes) rather than wrapping below the tabs. */
   .smart {
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
-    gap: 8px 14px;
-    padding: 6px 12px 8px 36px;
+    gap: 6px;
+    padding-block: 6px 8px;
+    padding-inline: 36px 12px;
+    container-type: inline-size;
   }
   .smart.compact {
-    padding: 6px 10px 8px;
+    padding-inline: 10px;
   }
   .seg {
     display: inline-flex;
+    flex: none;
     padding: 2px;
     border-radius: 9px;
     background: var(--surface-hover);
@@ -56,13 +60,28 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    /* With the 2px track: 26px, the picker's height. */
+    height: 22px;
     border: none;
     background: none;
-    padding: 4px 12px;
+    padding: 0 12px;
     border-radius: 7px;
     font-size: 12.5px;
     font-weight: 500;
+    white-space: nowrap;
     color: var(--content-subtle);
+  }
+  /* Narrow list column: tighter tabs, then no tab icons. */
+  @container (max-width: 400px) {
+    .seg button {
+      gap: 4px;
+      padding: 0 9px;
+    }
+  }
+  @container (max-width: 300px) {
+    .seg button :global(svg) {
+      display: none;
+    }
   }
   .seg button.on {
     background: var(--surface-overlay);
@@ -82,7 +101,9 @@
     text-align: center;
   }
   .other-pick {
-    font-size: 12.5px;
+    display: flex;
+    flex: 0 1 auto;
+    min-width: 0;
     opacity: 0.85;
   }
   .other-pick.on {

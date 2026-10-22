@@ -65,7 +65,15 @@ Existing commands that change:
 - `add_account` refuses providers the org disallows, with `cloud:provider_not_allowed`.
 - `reauthorize_account` also handles Google.
 - `get_settings` / `set_settings` no longer carry `providers` or `microsoftClientId`.
-- `ai_*` is unchanged in M2. M4 changes it.
+- `ai_settings` answers `{settings, hasKey, personalEnabled, managed, orgReady}`: `settings` is what
+  requests use (the org's provider, URL and model with the user's own options). `set_ai_settings`
+  takes `{ prefs: {enabled, instructions, smartSort} }` only. `ai_models` / `ai_test` became
+  `admin_ai_models` / `admin_ai_test`.
+- Admin (owners and admins; the server answers 403 to others): `admin_config`,
+  `admin_set_providers { providers, googleClientSecret }`, `admin_set_ai { ai, apiKey }` (secrets:
+  `null` keeps, `""` clears), `admin_ai_models` / `admin_ai_test { ai, apiKey }` (no key: the saved
+  one), `admin_users { query }`, `admin_set_role { id, role: "admin" | "user" }`. Show Admin when
+  `CloudStatus.me.role` is `owner` or `admin`.
 - `microsoft_sign_in_ready` reports whether the org config has a Microsoft app ID.
 
 ## Events
@@ -76,7 +84,8 @@ There is a new Tauri event, `cloud-event`, with payload
 - `signedOut` fires when the server revoked this device, or the refresh token died.
 
 `engine-event` keeps its current shape. After a remote section is applied, the engine emits
-`MailboxChanged` / `CalendarChanged` as it does today when local data changes. A new
+`MailboxChanged` / `CalendarChanged` as it does today when local data changes.
+`{ type: "aiChanged" }` fires when the org's AI setup or this device's copy of its key changed. A new
 `{ type: "settingsChanged" }` event fires when `prefs` or `shortcuts` changed from another device,
 so open windows reload settings and shortcuts.
 

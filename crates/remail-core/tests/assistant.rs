@@ -220,7 +220,7 @@ async fn anthropic_compatible_tool_loop_with_declined_approval() {
 async fn ai_requires_setup() {
     let e = engine();
     let err = e.ai_chat("c", "r", "hi".into(), None, Arc::new(|_| {})).await.unwrap_err();
-    assert!(err.to_string().contains("Turn on the AI assistant"), "{err}");
+    assert!(err.to_string().contains("Turn on AI assistance"), "{err}");
 }
 
 #[tokio::test]

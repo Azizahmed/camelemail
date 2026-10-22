@@ -79,7 +79,7 @@ class MailState {
     other: null as null | Exclude<Category, "primary">,
     counts: { important: 0, other: 0 } as SmartCounts,
   });
-  ai = $state({ enabled: false, ready: false });
+  ai = $state({ enabled: false, ready: false, notSetUp: false });
   assistantOpen = $state(false);
   /** Mail or the calendar (both live in the main window). */
   space = $state<"mail" | "calendar">("mail");
@@ -801,6 +801,14 @@ async function handleEvent(e: EngineEvent) {
       // Changed on another device.
       await reloadSynced();
       break;
+    case "aiChanged":
+      // The organisation's AI setup or key changed.
+      try {
+        applyAi(await api.aiSettings());
+      } catch {
+        /* keep what's shown */
+      }
+      break;
     case "newMail":
     case "openCompose":
       break;
@@ -810,14 +818,18 @@ async function handleEvent(e: EngineEvent) {
 function applyAi(v: AiSettingsView) {
   const s = v.settings;
   mail.ai.enabled = s.enabled;
-  mail.ai.ready = s.enabled && !!s.model.trim() && !!s.baseUrl.trim() && (v.hasKey || /:\/\/(localhost|127\.|\[::1\]|0\.0\.0\.0)/.test(s.baseUrl));
+  mail.ai.notSetUp = v.managed && !v.orgReady;
+  // Signed in, the organisation's key is fetched when a request needs it.
+  const keyed = v.managed || v.hasKey || /:\/\/(localhost|127\.|\[::1\]|0\.0\.0\.0)/.test(s.baseUrl);
+  mail.ai.ready = s.enabled && !!s.model.trim() && !!s.baseUrl.trim() && keyed;
   if (!mail.ai.ready) mail.assistantOpen = false;
 }
 
 /** Guard for AI actions: explain how to set it up when it isn't. */
 export function aiAvailable(): boolean {
   if (mail.ai.ready) return true;
-  toast(mail.ai.enabled ? t("m.toast.aiFinish") : t("m.toast.aiTurnOn"), {
+  const msg = mail.ai.notSetUp ? t("ai.notSetUp") : mail.ai.enabled ? t("m.toast.aiFinish") : t("m.toast.aiTurnOn");
+  toast(msg, {
     action: { label: t("m.toast.openSettings"), run: () => void api.openSettings("ai") },
   });
   return false;

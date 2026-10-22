@@ -5,8 +5,10 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { isMobile, pickFilesInPage } from "./platform";
 import type {
   Account,
+  AdminConfig,
+  AdminUser,
   AiOutput,
-  AiSettings,
+  AiPrefs,
   AiSettingsView,
   AiTask,
   AppSettings,
@@ -18,6 +20,8 @@ import type {
   Me,
   Meta,
   MigrationInfo,
+  OrgAi,
+  OrgProviders,
   ProviderOption,
   UiPrefs,
   ImportedServer,
@@ -157,9 +161,8 @@ export const api = {
   senderRules: () => invoke<SenderRule[]>("sender_rules"),
 
   aiSettings: () => invoke<AiSettingsView>("ai_settings"),
-  setAiSettings: (settings: AiSettings, apiKey: string | null) => invokeInOrder<AiSettingsView>("set_ai_settings", { settings, apiKey }),
-  aiModels: (settings: AiSettings, apiKey: string | null) => invoke<string[]>("ai_models", { settings, apiKey }),
-  aiTest: (settings: AiSettings, apiKey: string | null) => invoke<string>("ai_test", { settings, apiKey }),
+  /** The user's own options; the provider, model and key are the organisation's. */
+  setAiSettings: (prefs: AiPrefs) => invokeInOrder<AiSettingsView>("set_ai_settings", { prefs }),
   /** Run a writing task; `onText` receives the streamed text. */
   aiRun: (requestId: string, task: AiTask, onText: (delta: string) => void) => {
     const ch = new Channel<string>();
@@ -205,6 +208,17 @@ export const api = {
   /** `upload: false` discards this computer's setup and takes the server's. */
   cloudMigrate: (upload: boolean) => invoke<void>("cloud_migrate", { upload }),
   cloudSyncNow: () => invoke<void>("cloud_sync_now"),
+
+  // Admin (owners and admins). Secrets are write-only: null keeps the saved one, "" clears it.
+  adminConfig: () => invoke<AdminConfig>("admin_config"),
+  adminSetProviders: (providers: OrgProviders, googleClientSecret: string | null) =>
+    invoke<AdminConfig>("admin_set_providers", { providers, googleClientSecret }),
+  adminSetAi: (ai: OrgAi, apiKey: string | null) => invoke<AdminConfig>("admin_set_ai", { ai, apiKey }),
+  /** Models the provider offers for a setup that may be unsaved (no key: the saved one). */
+  adminAiModels: (ai: OrgAi, apiKey: string | null) => invoke<string[]>("admin_ai_models", { ai, apiKey }),
+  adminAiTest: (ai: OrgAi, apiKey: string | null) => invoke<string>("admin_ai_test", { ai, apiKey }),
+  adminUsers: (query: string | null = null) => invoke<AdminUser[]>("admin_users", { query }),
+  adminSetRole: (id: string, role: "admin" | "user") => invoke<AdminUser>("admin_set_role", { id, role }),
   // One queue: two quick changes don't land the wrong way round, and a reload waits for saves.
   uiPrefs: () => invokeInOrder<UiPrefs | null>("ui_prefs", undefined, "ui_prefs"),
   setUiPrefs: (prefs: Partial<UiPrefs>) => invokeInOrder<void>("set_ui_prefs", { prefs }, "ui_prefs"),

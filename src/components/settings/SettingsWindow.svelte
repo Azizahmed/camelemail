@@ -6,9 +6,12 @@
   import {
     Users, SlidersHorizontal, PenLine, FileText, Clock, Info, Plus, Trash2, ChevronRight,
     Bold, Italic, Underline, Link as LinkIcon, Code, Check, X, RotateCcw, Plug, Eraser, CalendarDays, Keyboard, Sparkles, CircleUserRound,
+    ShieldCheck,
   } from "@lucide/svelte";
   import { api, onEngineEvent } from "../../lib/api";
+  import { ADMIN_TABS, type AdminTab } from "../../lib/admin";
   import { directEditor } from "../../lib/bidi";
+  import { cloud, setMe } from "../../lib/cloud.svelte";
   import { applyLanguageSetting, i18n, LOCALES, setLocale, t, type Locale, type MessageKey } from "../../lib/i18n.svelte";
   import { loadUiPrefs } from "../../lib/prefs.svelte";
   import { applyTheme, confirmDialog, toast, toastError } from "../../lib/ui.svelte";
@@ -16,6 +19,7 @@
   import AccountSettings from "./AccountSettings.svelte";
   import AccountSetup from "../AccountSetup.svelte";
   import AiSettings from "./AiSettings.svelte";
+  import AdminSettings from "./admin/AdminSettings.svelte";
   import CalendarSettings from "./CalendarSettings.svelte";
   import ConnectionsSettings from "./ConnectionsSettings.svelte";
   import ShortcutsSettings from "./ShortcutsSettings.svelte";
@@ -34,7 +38,8 @@
   } = $props();
 
   // Sections with a `key` are translated; the rest are English until the app's translation milestone.
-  const SECTIONS: readonly { id: string; label: string; key?: MessageKey; icon: typeof Users }[] = [
+  // `admin`: only owners and administrators of the organisation see it.
+  const SECTIONS: readonly { id: string; label: string; key?: MessageKey; icon: typeof Users; admin?: boolean }[] = [
     { id: "account", label: "Account", key: "settings.account", icon: CircleUserRound },
     { id: "accounts", label: "Mailboxes", icon: Users },
     { id: "general", label: "General", icon: SlidersHorizontal },
@@ -46,12 +51,23 @@
     { id: "snooze", label: "Snooze", icon: Clock },
     { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
     { id: "ai", label: "AI assistance", key: "settings.ai", icon: Sparkles },
+    { id: "admin", label: "Admin", key: "settings.admin", icon: ShieldCheck, admin: true },
     { id: "about", label: "About", icon: Info },
   ];
   type SectionId = string;
+  const isAdmin = $derived(cloud.status?.me?.role === "owner" || cloud.status?.me?.role === "admin");
   const isSection = (s: unknown): s is SectionId => SECTIONS.some((x) => x.id === s);
-  /** Older links open where that setting lives now (the Admin section is gone). */
-  const sectionFor = (s: unknown): SectionId | null => (s === "admin" ? "ai" : isSection(s) ? s : null);
+  let adminTab = $state<AdminTab>("ai");
+  /** `admin:<part>` opens a part of Admin. People who aren't administrators
+   *  land on AI assistance (the AI setup used to live under Admin). */
+  function sectionFor(s: unknown): SectionId | null {
+    if (typeof s === "string" && (s === "admin" || s.startsWith("admin:"))) {
+      const part = s.slice(6) as AdminTab;
+      if (ADMIN_TABS.includes(part)) adminTab = part;
+      return "admin";
+    }
+    return isSection(s) ? s : null;
+  }
   const sectionLabel = (s: (typeof SECTIONS)[number]) => (s.key ? t(s.key) : s.label);
 
   function setLanguage(l: Locale) {
@@ -60,6 +76,10 @@
   }
 
   let section = $state<SectionId>(sectionFor((() => initialSection)()) ?? "account");
+  // Admin is for owners and administrators (the role can change while open).
+  $effect(() => {
+    if (section === "admin" && cloud.status?.me && !isAdmin) section = "ai";
+  });
   let settings = $state<AppSettings | null>(null);
   let accounts = $state<Account[]>([]);
   let info = $state<{ version: string; dataDir: string } | null>(null);
@@ -89,6 +109,8 @@
     }).then(keep);
     void reloadSettings();
     void loadUiPrefs().catch(() => {});
+    // The role may have changed since sign-in (Admin shows for administrators).
+    api.cloudMe().then(setMe, () => {});
     api.appInfo().then((i) => (info = i)).catch(() => {});
     loadAccounts();
     loadSignatures();
@@ -521,7 +543,7 @@
   {#if !embedded}
     <nav class="rail" aria-label="Settings sections">
       <div class="rail-title">Settings</div>
-      {#each SECTIONS as s}
+      {#each SECTIONS.filter((x) => !x.admin || isAdmin) as s}
         <button class="rail-item" class:active={section === s.id} aria-current={section === s.id ? "page" : undefined} onclick={() => (section = s.id)}>
           <s.icon size={16} />
           {sectionLabel(s)}
@@ -726,7 +748,10 @@
         <CalendarSettings {settings} {update} />
 
       {:else if section === "ai"}
-        <AiSettings />
+        <AiSettings onadmin={embedded ? undefined : () => ((adminTab = "ai"), (section = "admin"))} />
+
+      {:else if section === "admin" && isAdmin}
+        <AdminSettings bind:tab={adminTab} />
 
       {:else if section === "connections"}
         <ConnectionsSettings />

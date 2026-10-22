@@ -37,7 +37,7 @@ use crate::secrets::SecretStore;
 use crate::smtp::{self, SendError};
 use crate::store::{new_id, now_ms, Store};
 use crate::sync::{self, ServerOp};
-use remail_proto::org::{ProviderKind as OrgKind, Providers};
+use remail_proto::org::{OrgAi, ProviderKind as OrgKind, Providers};
 use remail_proto::sections;
 
 /// Receives engine events (the desktop shell forwards them to the UI).
@@ -98,15 +98,39 @@ pub trait CloudLink: Send + Sync {
     fn google_exchange(&self, req: remail_proto::api::GoogleExchange) -> futures::future::BoxFuture<'static, Result<remail_proto::api::GoogleTokens>>;
     /// Refresh a Google sign-in through the server (same client secret).
     fn google_refresh(&self, refresh_token: String) -> futures::future::BoxFuture<'static, Result<remail_proto::api::GoogleTokens>>;
+    /// Fetch the organisation's AI key again (the provider refused the one
+    /// this device has, or it has none yet). `Ok(None)`: there's no key.
+    fn refresh_ai_key(&self) -> futures::future::BoxFuture<'static, Result<Option<String>>> {
+        Box::pin(async { Ok(None) })
+    }
 }
 
 /// The organisation's email providers, as the engine enforces them when
-/// mailboxes are added (the server checks again when they sync).
+/// mailboxes are added (the server checks again when they sync), and its AI
+/// assistant (the key is in the secret store, `ai::ORG_KEY_SECRET_ID`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct OrgAccess {
     pub providers: Providers,
     /// Google codes are exchanged by the server (it has the client secret).
     pub google_server_exchange: bool,
+    pub ai: OrgAi,
+}
+
+/// The AI assistant as the UI shows it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiStatus {
+    /// What requests use: the organisation's provider, URL and model with
+    /// this user's on/off, instructions and smart sort.
+    pub settings: AiSettings,
+    /// This device holds the key requests use.
+    pub has_key: bool,
+    /// The user's own switch (kept while the organisation has AI off).
+    pub personal_enabled: bool,
+    /// The organisation chooses the provider (signed in to a Camel Mail server).
+    pub managed: bool,
+    /// The organisation has set AI up: on, with an API URL and a model.
+    pub org_ready: bool,
 }
 
 /// Which provider an account belongs to, for the allow-list.
@@ -217,7 +241,7 @@ impl Default for AppSettings {
             snooze_saturday: "10:00".into(),
             snooze_monday: "10:00".into(),
             confirm_before_send: false,
-            close_to_tray: false,
+            close_to_tray: true,
             after_remove: "nextUnread".into(),
             layout: "split".into(),
             smart_inbox: true,
@@ -601,7 +625,19 @@ impl Engine {
 
     /// The organisation's provider rules (from the Remail server's org config).
     pub fn set_org(&self, org: Option<OrgAccess>) {
-        *self.inner.org.lock().unwrap() = org;
+        let ai = org.as_ref().map(|o| o.ai.clone());
+        let before = std::mem::replace(&mut *self.inner.org.lock().unwrap(), org);
+        if before.map(|o| o.ai) != ai {
+            self.ai_changed();
+        }
+    }
+
+    /// The AI setup or key changed: answers made with the old one go, and
+    /// open windows are told.
+    pub(crate) fn ai_changed(&self) {
+        self.inner.ai.summaries.lock().unwrap().clear();
+        self.inner.ai.sort_wake.notify_one();
+        self.emit(EngineEvent::AiChanged);
     }
 
     pub fn org(&self) -> Option<OrgAccess> {
@@ -1988,12 +2024,61 @@ impl Engine {
     // AI assistant
     // ------------------------------------------------------------------
 
+    /// The user's own AI settings. Signed in to a Camel Mail server only
+    /// their personal options count (on/off, instructions, smart sort): the
+    /// organisation chooses the provider, see [`Engine::ai_effective`].
     pub fn ai_settings(&self) -> AiSettings {
         self.inner.store.setting("ai").unwrap_or_default()
     }
 
+    /// What AI requests use, and where their key is kept: the organisation's
+    /// provider, URL, model and key with the user's own options. Without an
+    /// organisation (no Camel Mail server: tests, tools) the user's old local
+    /// settings and key.
+    pub fn ai_effective(&self) -> (AiSettings, &'static str) {
+        let mine = self.ai_settings();
+        match self.org() {
+            Some(org) => {
+                let o = org.ai;
+                let s = AiSettings {
+                    enabled: mine.enabled && o.ready(),
+                    provider: o.provider,
+                    base_url: o.base_url,
+                    model: o.model,
+                    max_tokens: o.max_tokens,
+                    instructions: mine.instructions,
+                    smart_sort: mine.smart_sort,
+                };
+                (s, ai::ORG_KEY_SECRET_ID)
+            }
+            None => (mine, ai::KEY_SECRET_ID),
+        }
+    }
+
     pub fn ai_has_key(&self) -> bool {
-        self.inner.secrets.get(ai::KEY_SECRET_ID).ok().flatten().is_some_and(|k| !k.is_empty())
+        let (_, key_id) = self.ai_effective();
+        self.inner.secrets.get(key_id).ok().flatten().is_some_and(|k| !k.is_empty())
+    }
+
+    pub fn ai_status(&self) -> AiStatus {
+        let org = self.org();
+        AiStatus {
+            settings: self.ai_effective().0,
+            has_key: self.ai_has_key(),
+            personal_enabled: self.ai_settings().enabled,
+            managed: org.is_some(),
+            org_ready: org.is_some_and(|o| o.ai.ready()),
+        }
+    }
+
+    /// Save the user's own options (on/off, instructions, smart sort); the
+    /// rest of `prefs` stays as it was.
+    pub fn set_ai_prefs(&self, enabled: bool, instructions: &str, smart_sort: bool) -> Result<()> {
+        let mut s = self.ai_settings();
+        s.enabled = enabled;
+        s.instructions = instructions.to_string();
+        s.smart_sort = smart_sort;
+        self.set_ai_settings(&s, None)
     }
 
     /// Save AI settings; `api_key`: None keeps the stored key, `Some("")` removes it.
@@ -2019,18 +2104,39 @@ impl Engine {
         Ok(())
     }
 
+    /// A client for `settings`: with `api_key`, or the key this device keeps.
     fn ai_client_with(&self, settings: AiSettings, api_key: Option<String>) -> Result<ai::Client> {
-        let key = match api_key.filter(|k| !k.trim().is_empty()) {
-            Some(k) => Some(k),
-            None => self.inner.secrets.get(ai::KEY_SECRET_ID)?,
-        };
-        ai::Client::new(self.inner.ai.http.get_or_init(ai::http_client).clone(), settings, key)
+        let http = self.inner.ai.http.get_or_init(ai::http_client).clone();
+        if let Some(k) = api_key.filter(|k| !k.trim().is_empty()) {
+            return ai::Client::new(http, settings, Some(k));
+        }
+        let (_, key_id) = self.ai_effective();
+        let key = self.inner.secrets.get(key_id)?;
+        // The organisation's key can be fetched again when it's refused or missing.
+        let refetch = (key_id == ai::ORG_KEY_SECRET_ID).then(|| self.org_key_source());
+        ai::Client::with_key_source(http, settings, key, refetch)
+    }
+
+    /// Fetches the organisation's key through the Camel Mail server.
+    fn org_key_source(&self) -> ai::KeySource {
+        let weak = Arc::downgrade(&self.inner);
+        Arc::new(move || {
+            let weak = weak.clone();
+            Box::pin(async move {
+                let inner = weak.upgrade().context("Camel Mail is shutting down")?;
+                let link = Engine { inner }.link().context("signed out of Camel Mail")?;
+                link.refresh_ai_key().await
+            })
+        })
     }
 
     fn ai_client(&self) -> Result<ai::Client> {
-        let s = self.ai_settings();
+        let (s, _) = self.ai_effective();
+        if self.org().is_some_and(|o| !o.ai.ready()) {
+            bail!("AI assistance isn't set up for your organisation yet.");
+        }
         if !s.enabled {
-            bail!("Turn on the AI assistant in Settings → AI Assistant");
+            bail!("Turn on AI assistance in Settings → AI assistance");
         }
         self.ai_client_with(s, None)
     }
@@ -3718,7 +3824,7 @@ async fn ai_sort_loop(weak: Weak<Inner>) {
     loop {
         let Some(inner) = weak.upgrade() else { return };
         let engine = Engine { inner: inner.clone() };
-        let s = engine.ai_settings();
+        let (s, _) = engine.ai_effective();
         let mut wait = Duration::from_secs(600);
         if s.enabled && s.smart_sort {
             match engine.ai_client() {
@@ -3800,6 +3906,17 @@ mod tests {
     struct Quiet;
     impl EventSink for Quiet {
         fn emit(&self, _: EngineEvent) {}
+    }
+
+    #[test]
+    fn closing_the_window_keeps_running_in_the_tray_by_default() {
+        assert!(AppSettings::default().close_to_tray);
+        // Stored settings from before the option existed get the default too;
+        // a stored choice stays as it was.
+        let old: AppSettings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(old.close_to_tray);
+        let off: AppSettings = serde_json::from_str(r#"{"closeToTray":false}"#).unwrap();
+        assert!(!off.close_to_tray);
     }
 
     #[test]

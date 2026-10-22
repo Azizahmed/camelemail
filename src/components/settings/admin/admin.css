@@ -1,0 +1,475 @@
+/* Settings › Admin (and the reduced Settings › AI assistance). Global, under
+   `.adm`, so the three parts share one look; on phones the
+   `.m-settings-embed` rules in src/mobile/settings/settings.css win. */
+
+.adm h1 {
+  margin: 0 0 18px;
+  font-size: 20px;
+  line-height: 26px;
+  font-weight: 600;
+}
+
+.adm .intro {
+  margin: -6px 0 14px;
+  color: var(--content-subtle);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.adm .group-title {
+  margin: 24px 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--content-muted);
+}
+
+.adm .row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 12px 0;
+  border-bottom: 0.5px solid var(--separator-subtle);
+}
+
+.adm .row-text {
+  min-width: 0;
+}
+
+.adm .row-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.adm .row-desc {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--content-subtle);
+}
+
+.adm .row-control {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+
+.adm .field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  min-width: 0;
+}
+
+.adm .field > label,
+.adm .field > .lbl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--content-subtle);
+}
+
+.adm .opt {
+  font-weight: 400;
+  color: var(--content-muted);
+}
+
+.adm .hint {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--content-muted);
+}
+
+.adm .err {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--indicator-error);
+}
+
+.adm .input.bad {
+  border-color: var(--indicator-error);
+}
+
+.adm .inline {
+  display: flex;
+  gap: 8px;
+}
+
+.adm .inline > .input,
+.adm .inline > .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.adm .area {
+  min-height: 72px;
+  height: auto;
+  resize: vertical;
+  padding: 8px 10px;
+  line-height: 18px;
+}
+
+.adm .seg {
+  display: inline-flex;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 2px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-hover);
+}
+
+.adm .seg button {
+  border: none;
+  background: none;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--content-subtle);
+  white-space: nowrap;
+}
+
+.adm .seg button.on {
+  background: var(--surface-overlay);
+  color: var(--content);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.adm .seg button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.adm .tabs {
+  margin-bottom: 20px;
+}
+
+.adm .tabs button {
+  padding: 5px 14px;
+  font-size: 13px;
+}
+
+/* A switchable block (one provider). */
+.adm .card {
+  margin-bottom: 14px;
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-xl);
+  background: var(--surface-elevated);
+  overflow: hidden;
+}
+
+.adm .card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.adm .card-head .row-text {
+  flex: 1;
+}
+
+.adm .card-body {
+  padding: 2px 14px 4px;
+  border-top: 0.5px solid var(--separator-subtle);
+  padding-top: 12px;
+}
+
+.adm .card.off .card-body {
+  opacity: 0.6;
+}
+
+.adm .logo {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--surface-hover);
+  color: var(--content-subtle);
+}
+
+.adm .state {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-hover);
+  color: var(--content-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.adm .state.set {
+  background: color-mix(in srgb, var(--indicator-success) 14%, transparent);
+  color: var(--indicator-success);
+}
+
+.adm .link {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--accent);
+  text-align: start;
+}
+
+.adm .link:hover {
+  text-decoration: underline;
+}
+
+.adm .warn {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 2px 0 12px;
+  padding: 8px 10px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--indicator-warning) 14%, transparent);
+  color: var(--content);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.adm .warn svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--indicator-warning);
+}
+
+.adm .actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.adm .grow {
+  flex: 1;
+}
+
+.adm .actions .link {
+  align-self: center;
+}
+
+.adm .note {
+  margin-top: 18px;
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-hover);
+  color: var(--content-subtle);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.adm .presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.adm .preset {
+  border: 0.5px solid var(--border-tertiary);
+  background: var(--surface-elevated);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+.adm .preset:hover {
+  background: var(--surface-hover);
+}
+
+.adm .preset.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* Lists (servers, people). */
+.adm .list {
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-xl);
+  background: var(--surface-elevated);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.adm .list > * + * {
+  border-top: 0.5px solid var(--separator-subtle);
+}
+
+.adm .item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 9px 14px;
+  border: none;
+  background: none;
+  text-align: start;
+  color: inherit;
+}
+
+.adm button.item:hover {
+  background: var(--surface-hover);
+}
+
+.adm .item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.adm .name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adm .sub {
+  font-size: 12px;
+  color: var(--content-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adm .meta {
+  font-size: 11px;
+  color: var(--content-muted);
+}
+
+.adm .empty {
+  padding: 16px 14px;
+  font-size: 13px;
+  color: var(--content-muted);
+}
+
+.adm .badge {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-hover);
+  color: var(--content-subtle);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.adm .badge.accent {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* A server's IMAP / SMTP line: host, port, security. */
+.adm .srv-title {
+  margin: 6px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--content);
+}
+
+.adm .srv-row {
+  display: flex;
+  gap: 8px;
+}
+
+.adm .srv-row > .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.adm .srv-row > .port {
+  width: 86px;
+  flex: none;
+}
+
+.adm .srv-row > .sec {
+  width: 128px;
+  flex: none;
+}
+
+.adm .editor {
+  padding: 14px;
+  background: var(--surface-elevated);
+}
+
+.adm .form-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.adm .loading {
+  display: flex;
+  justify-content: center;
+  padding: 40px 0;
+}
+
+.adm .load-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--content-subtle);
+}
+
+/* "Not set up yet" (Settings › AI assistance). */
+.adm .blank {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 28px 24px;
+  border: 0.5px dashed var(--border-tertiary);
+  border-radius: var(--radius-xl);
+  text-align: center;
+}
+
+.adm .blank-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.adm .blank-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.adm .blank-body {
+  max-width: 400px;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--content-subtle);
+}
+
+.adm .blank .btn {
+  margin-top: 6px;
+}

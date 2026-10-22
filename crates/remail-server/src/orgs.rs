@@ -221,6 +221,7 @@ pub async fn startup(cfg: &Config, db: &PgPool, env: &Envelope, create_first_org
             };
             apply_google_app(cfg, db, env, &public).await?;
             apply_microsoft_app(cfg, db, env, &public).await?;
+            promote_admin_emails(cfg, db, &public).await?;
             // Until the service has an owner, every start offers a fresh
             // one-time owner invite (an invite needs no e-mail delivery).
             if create_first_org {
@@ -245,11 +246,12 @@ pub async fn startup(cfg: &Config, db: &PgPool, env: &Envelope, create_first_org
 }
 
 /// Hosted: the Google app from `REMAIL_GOOGLE_CLIENT_ID` and
-/// `REMAIL_GOOGLE_CLIENT_SECRET` goes into the public org (saved only when
-/// it changed). Both are needed: Google's token endpoint wants the secret.
-/// It's a "Desktop app" client, whose secret isn't confidential: devices get
-/// it and sign in to Google themselves, so no Google token ever passes
-/// through this server (no server-side exchange or refresh).
+/// `REMAIL_GOOGLE_CLIENT_SECRET` seeds the public org, once: only while the
+/// org has no Google client ID (after that the admin's settings win). Both
+/// are needed: Google's token endpoint wants the secret. It's a "Desktop
+/// app" client, whose secret isn't confidential: devices get it and sign in
+/// to Google themselves, so no Google token ever passes through this server
+/// (no server-side exchange or refresh).
 async fn apply_google_app(cfg: &Config, db: &PgPool, env: &Envelope, org: &Org) -> Result<()> {
     let (Some(id), Some(secret)) = (&cfg.google_client_id, &cfg.google_client_secret) else {
         if cfg.google_client_id.is_some() != cfg.google_client_secret.is_some() {
@@ -258,13 +260,13 @@ async fn apply_google_app(cfg: &Config, db: &PgPool, env: &Envelope, org: &Org) 
         return Ok(());
     };
     let (_, mut config) = config(db, env, org).await?;
-    let app = &config.providers.google_app;
-    if app.client_id != *id || app.client_secret != *secret || !config.providers.google {
+    if config.providers.google_app.client_id.is_empty() {
         config.providers.google_app.client_id = id.clone();
         config.providers.google_app.client_secret = secret.clone();
-        config.providers.google = true;
         set_config(db, env, &org.id, &config, "startup").await?;
         tracing::info!("Google sign-in set up for the public org");
+    } else if config.providers.google_app.client_id != *id {
+        tracing::info!("REMAIL_GOOGLE_CLIENT_ID differs from the Google app an admin saved; keeping the admin's");
     }
     // A server-held secret would turn on server-side exchange: drop it.
     let mut secrets = secrets(db, env, &org.id).await?;
@@ -276,19 +278,49 @@ async fn apply_google_app(cfg: &Config, db: &PgPool, env: &Envelope, org: &Org) 
 }
 
 /// Hosted: the Microsoft app from `REMAIL_MICROSOFT_CLIENT_ID` (and
-/// `REMAIL_MICROSOFT_TENANT`, default `common`) goes into the public org,
-/// saved only when it changed. One sign-in gives mail and calendars.
+/// `REMAIL_MICROSOFT_TENANT`, default `common`) seeds the public org, once:
+/// only while the org has no Microsoft client ID (after that the admin's
+/// settings win). One sign-in gives mail and calendars.
 async fn apply_microsoft_app(cfg: &Config, db: &PgPool, env: &Envelope, org: &Org) -> Result<()> {
     let Some(id) = &cfg.microsoft_client_id else { return Ok(()) };
-    let tenant = cfg.microsoft_tenant.clone().unwrap_or_else(|| "common".into());
     let (_, mut config) = config(db, env, org).await?;
-    let app = &config.providers.microsoft_app;
-    if app.client_id != *id || app.tenant != tenant || !config.providers.microsoft {
+    if config.providers.microsoft_app.client_id.is_empty() {
         config.providers.microsoft_app.client_id = id.clone();
-        config.providers.microsoft_app.tenant = tenant;
-        config.providers.microsoft = true;
+        config.providers.microsoft_app.tenant = cfg.microsoft_tenant.clone().unwrap_or_else(|| "common".into());
         set_config(db, env, &org.id, &config, "startup").await?;
         tracing::info!("Microsoft sign-in set up for the public org");
+    } else if config.providers.microsoft_app.client_id != *id {
+        tracing::info!("REMAIL_MICROSOFT_CLIENT_ID differs from the Microsoft app an admin saved; keeping the admin's");
+    }
+    Ok(())
+}
+
+/// Hosted: existing accounts of the public org whose address is in
+/// `REMAIL_ADMIN_EMAILS` become owners.
+async fn promote_admin_emails(cfg: &Config, db: &PgPool, org: &Org) -> Result<()> {
+    if cfg.admin_emails.is_empty() {
+        return Ok(());
+    }
+    let promoted: Vec<(String, String)> = sqlx::query_as(
+        "with old as (select id, role from users where org_id = $1 and lower(email) = any($2) and role <> 'owner')
+         update users u set role = 'owner' from old where u.id = old.id returning u.id, old.role",
+    )
+    .bind(&org.id)
+    .bind(&cfg.admin_emails)
+    .fetch_all(db)
+    .await?;
+    for (id, from) in &promoted {
+        crate::audit::log(
+            db,
+            crate::audit::Event::new("admin.user.role", crate::audit::Actor::System)
+                .org(&org.id)
+                .target(id)
+                .meta(serde_json::json!({"from": from, "to": "owner", "by": "REMAIL_ADMIN_EMAILS"})),
+        )
+        .await;
+    }
+    if !promoted.is_empty() {
+        tracing::info!(count = promoted.len(), "made REMAIL_ADMIN_EMAILS accounts owners of the public org");
     }
     Ok(())
 }

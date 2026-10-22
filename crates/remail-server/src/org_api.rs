@@ -1,11 +1,13 @@
 //! Discovery and org-level reads: `/v1/meta`, `/v1/orgcode/{code}`,
-//! `/v1/org/config`, `/v1/providers` and the server-side Google code exchange.
+//! `/v1/org/config`, `/v1/org/ai-key`, `/v1/providers` and the server-side
+//! Google code exchange.
 
 use axum::extract::State;
 use axum::routing::{get, post};
 use axum::Router;
 use remail_proto::api::{
-    providers_for, GoogleExchange, GoogleRefresh, GoogleTokens, Meta, OrgCodeResolved, OrgConfigResponse, ProviderOption,
+    providers_for, GoogleExchange, GoogleRefresh, GoogleTokens, Meta, OrgAiKey, OrgCodeResolved, OrgConfigResponse,
+    ProviderOption,
 };
 use remail_proto::ErrorCode;
 use serde::Deserialize;
@@ -27,6 +29,7 @@ pub fn routes() -> Router<AppState> {
         .route("/meta", get(meta))
         .route("/orgcode/{code}", get(orgcode))
         .route("/org/config", get(org_config))
+        .route("/org/ai-key", get(org_ai_key))
         .route("/providers", get(providers))
         .route("/providers/google/token", post(google_token))
         .route("/providers/google/refresh", post(google_refresh));
@@ -76,6 +79,33 @@ async fn org_config(State(s): State<AppState>, ctx: AuthCtx) -> AppResult<ApiJso
     let org = caller_org(&s, &ctx).await?;
     let (version, config) = orgs::config(&s.db, &s.env, &org).await?;
     Ok(ApiJson(OrgConfigResponse { version, config }))
+}
+
+/// The organisation's AI key for this member's device (decided 2026-10-22:
+/// devices call the AI provider directly, so mail never passes through this
+/// server; the trade-off is that members can extract the key). Only while
+/// org AI is on, except for admins testing their setup. Audited, rate
+/// limited, never logged.
+async fn org_ai_key(State(s): State<AppState>, ctx: AuthCtx) -> AppResult<ApiJson<OrgAiKey>> {
+    s.limit_user(&ctx.user_id)?;
+    let org = caller_org(&s, &ctx).await?;
+    let (_, config) = orgs::config(&s.db, &s.env, &org).await?;
+    if !config.ai.enabled && !ctx.is_admin() {
+        return Err(AppError::forbidden("Your organisation hasn't turned on AI assistance."));
+    }
+    let key = Redacted::new(orgs::secrets(&s.db, &s.env, &org.id).await?.ai.api_key);
+    if key.expose().is_empty() {
+        return Err(AppError::new(ErrorCode::NotFound, "Your organisation has no AI key."));
+    }
+    audit::log(
+        &s.db,
+        Event::new("org.ai_key.read", Actor::User(&ctx.user_id))
+            .org(&ctx.org_id)
+            .target(&ctx.device_id)
+            .meta(json!({"enabled": config.ai.enabled})),
+    )
+    .await;
+    Ok(ApiJson(OrgAiKey { api_key: key.expose().clone() }))
 }
 
 async fn providers(State(s): State<AppState>, ctx: AuthCtx) -> AppResult<ApiJson<Vec<ProviderOption>>> {

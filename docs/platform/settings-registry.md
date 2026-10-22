@@ -27,7 +27,7 @@ Paths: `core/` = `crates/remail-core/src/`, `tauri/` = `src-tauri/src/`.
 | `snoozeLaterMinutes` | i64 | 120 | user | `prefs` | 〃 |
 | `snoozeMorning` / `Afternoon` / `Evening` / `Tomorrow` / `DayAfter` / `Saturday` / `Monday` | `HH:MM` | 08:00 / 15:00 / 18:00 / 10:00 / 11:00 / 10:00 / 10:00 | user | `prefs` | 〃 |
 | `confirmBeforeSend` | bool | false | user | `prefs` | 〃 |
-| `closeToTray` | bool | false | device | — | 〃 (`tauri/lib.rs:402`) |
+| `closeToTray` | bool | true | device | — | 〃 (`tauri/lib.rs:402`) |
 | `afterRemove` | `nextUnread\|next\|previous\|list` | `nextUnread` | user | `prefs` | 〃 |
 | `layout` | `split\|list` | `split` | device | — | 〃 (forced single-pane on phones) |
 | `smartInbox` | bool | true | user | `prefs` | 〃 |
@@ -49,14 +49,15 @@ Paths: `core/` = `crates/remail-core/src/`, `tauri/` = `src-tauri/src/`.
 
 | Key | Type | Default | Scope | Destination |
 |---|---|---|---|---|
-| `enabled` | bool | false | user (and the org policy must allow it) | `prefs.ai.enabled` |
+| `enabled` | bool | false | user (works only while org AI is on) | `prefs.ai.enabled` |
 | `instructions` | string | `""` | user | `prefs.ai.instructions` |
 | `smartSort` | bool | false | user | `prefs.ai.smartSort` |
-| `provider` | `openai\|anthropic` | `openai` | org-secret | org secrets `ai.provider` |
-| `baseUrl` | URL | OpenAI | org-secret | org secrets `ai.baseUrl` |
-| `model` | string | `""` | org (the policy may let users pick from an allowed list) | org config `ai.models[]`; the user's choice goes in `prefs.ai.model` |
-| `maxTokens` | u32 | 4096 | org | org config `ai.maxTokens` |
+| `provider` | `openai\|anthropic` | `openai` | org | org config `ai.provider` (the local value is ignored once signed in) |
+| `baseUrl` | URL | — | org | org config `ai.baseUrl` (〃) |
+| `model` | string | `""` | org | org config `ai.model` (〃) |
+| `maxTokens` | u32 | 4096 | org | org config `ai.maxTokens` (〃) |
 | keyring `ai-api-key` | secret | — | org-secret | org secrets `ai.apiKey` (deleted from devices on migration) |
+| *(new)* keyring `org-ai-key` | secret | — | org-secret, on members' devices | `GET /v1/org/ai-key` while org AI is on (2026-10-22: devices call the provider directly); refetched when the org config version changes or the provider answers 401/403, deleted when org AI is off or on sign-out |
 
 ## 3. `settings` key `mcp` (`McpSettings`, `core/engine.rs:349`)
 
@@ -107,6 +108,7 @@ MCP is desktop-only and machine-specific, so it stays on the device. The org can
 | `<acc_id>` = Microsoft `Grant` JSON | user credential | Section `cred:<acc_id>`, plus the device cache |
 | `cal:<cal_id>` = CalDAV / feed password | user credential | Section `cred:<cal_id>`, plus the device cache |
 | `ai-api-key` | org-secret | Removed from devices |
+| *(new)* `org-ai-key` = the org's AI key | org-secret | On signed-in members' devices while org AI is on |
 | *(new)* `remail-session` = `{server, refreshToken, deviceId}` | device | Keychain / Keystore only |
 | *(new)* `remail-cache-key` = 32-byte key for the local section cache | device | Keychain / Keystore only |
 | `mcp-server-token`, `mcp:*` | device | Unchanged |

@@ -26,15 +26,19 @@
     templates: "mset.templates",
     snooze: "mset.snooze",
     ai: "settings.ai",
-    admin: "settings.ai",
+    admin: "settings.admin",
     about: "mset.about",
   };
+  // `admin:<part>` opens one part of Admin.
+  const base = $derived(section.split(":")[0]);
+  // Translated sections follow the language; the rest are still English, so they read left to right.
+  const TRANSLATED = ["account", "accounts", "ai", "admin"];
 </script>
 
 <div class="m-screen">
   <header class="m-topbar">
     <button class="m-icon-btn" aria-label={t("common.back")} onclick={() => back()}><ArrowLeft size={20} class="rtl-flip" /></button>
-    <h1>{t(TITLES[section] ?? "mset.title")}</h1>
+    <h1>{t(TITLES[base] ?? "mset.title")}</h1>
   </header>
 
   <div class="m-scroll">
@@ -45,8 +49,7 @@
     {:else if section === "notifications"}
       <NotificationsPage />
     {:else}
-      <!-- Account and the add-mailbox form are translated; the other sections are still English, so they read left to right. -->
-      <div class="m-settings-embed" dir={section === "account" || section === "accounts" ? undefined : "ltr"}>
+      <div class="m-settings-embed" dir={TRANSLATED.includes(base) ? undefined : "ltr"}>
         <SettingsWindow embedded initialSection={section} />
       </div>
     {/if}

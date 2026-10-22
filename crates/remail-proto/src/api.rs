@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::org::{OAuthApp, OrgConfig, Policies, ProviderKind, ServerPreset};
+use crate::org::{OAuthApp, OrgAi, OrgConfig, Policies, ProviderKind, Providers, ServerPreset};
 use crate::sync::SectionDoc;
 
 // ---------- meta ----------
@@ -389,4 +389,98 @@ pub fn providers_for(config: &OrgConfig, google_secret_set: bool) -> Vec<Provide
             server_exchange: false,
         },
     ]
+}
+
+// ---------- org AI key ----------
+
+/// `GET /v1/org/ai-key`: the organisation's AI key, for a member's device
+/// while org AI is on (admins may read it while it's off, to test the
+/// setup). Devices call the AI provider themselves.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgAiKey {
+    pub api_key: String,
+}
+
+impl std::fmt::Debug for OrgAiKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OrgAiKey([redacted])")
+    }
+}
+
+// ---------- admin (owner or admin of the org) ----------
+
+/// `GET /v1/admin/config`, and the answer to the admin `PUT`s. Secrets are
+/// write-only: only whether they're set.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminConfig {
+    /// Org config version (devices pick up each change).
+    pub version: i64,
+    /// `googleApp.clientSecret` is always empty here: see `googleSecretSet`.
+    pub providers: Providers,
+    pub ai: OrgAi,
+    /// The Google app's client secret is set.
+    pub google_secret_set: bool,
+    /// The AI key is set.
+    pub ai_key_set: bool,
+}
+
+/// `PUT /v1/admin/providers`. `providers.googleApp.clientSecret` is ignored;
+/// `googleClientSecret` null keeps the saved one, `""` clears it, anything
+/// else replaces it.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminProvidersUpdate {
+    pub providers: Providers,
+    #[serde(default)]
+    pub google_client_secret: Option<String>,
+}
+
+impl std::fmt::Debug for AdminProvidersUpdate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdminProvidersUpdate").finish_non_exhaustive()
+    }
+}
+
+/// `PUT /v1/admin/ai`. `apiKey` null keeps the saved key, `""` clears it,
+/// anything else replaces it.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminAiUpdate {
+    pub ai: OrgAi,
+    #[serde(default)]
+    pub api_key: Option<String>,
+}
+
+impl std::fmt::Debug for AdminAiUpdate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdminAiUpdate").field("ai", &self.ai).finish_non_exhaustive()
+    }
+}
+
+/// `GET /v1/admin/users`: account metadata only (never settings, mailboxes
+/// or mail).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminUser {
+    pub id: String,
+    pub name: String,
+    pub email: String,
+    /// owner | admin | user
+    pub role: String,
+    /// ms since epoch
+    pub created_at: i64,
+    pub last_active_at: Option<i64>,
+    pub verified: bool,
+    pub disabled: bool,
+    pub totp: bool,
+}
+
+/// `PUT /v1/admin/users/{id}/role`: `admin` or `user`. Owners are set on the
+/// server (`REMAIL_ADMIN_EMAILS`), never through the API.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoleUpdate {
+    pub role: String,
 }

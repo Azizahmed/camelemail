@@ -206,6 +206,12 @@ async fn signup(
     if !matches!(role.as_str(), "user" | "admin" | "owner") {
         return Err(AppError::bad_request("Unknown role."));
     }
+    // Hosted: the operator's addresses own the public org.
+    let role = if s.cfg.mode == Mode::Hosted && org.slug == orgs::PUBLIC_SLUG && s.cfg.is_admin_email(&email) {
+        "owner".to_string()
+    } else {
+        role
+    };
     password::check_strength(password.expose(), &email, &name)?;
 
     if let Some(existing) = user_by_email(&s, &email).await? {

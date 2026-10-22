@@ -59,6 +59,11 @@
   html,body{margin:0;padding:0;background:transparent}
   /* :root outranks the html,body{height:100%!important} many templates ship. */
   :root,:root body{height:auto!important;min-height:0!important}
+  /* The frame grows to the email's height, so the email never scrolls up and
+     down inside it. A vertical scrollbar there would also narrow the text,
+     rewrap it to another height and start a resize loop. Wide emails still
+     scroll sideways; content that grows with the frame (100vh) scrolls. */
+  :root:not(.own-scroll){overflow-y:hidden!important}
   body{font:14px/1.45 "Remail Arabic",-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans","Noto Sans Arabic",Arial,sans-serif;color:#1c1c1c;overflow-wrap:anywhere;padding:2px}
   img{max-width:100%;height:auto}
   table{max-width:100%}
@@ -97,25 +102,63 @@
     if (d.body.style.zoom !== before) lastOver = 0;
   }
 
+  /** Recent height changes of this document, to notice a layout that never settles. */
+  let changes: { t: number; height: number; grew: boolean }[] = [];
+  /** Set while a flip-flopping layout is held at its tallest height, for this frame width. */
+  let heldWidth = 0;
+
+  /** How often the height may turn around within FLIP_WINDOW ms before it is held. */
+  const MAX_FLIPS = 3;
+  const FLIP_WINDOW = 1500;
+
   /** Fit the frame to the email's content, growing and shrinking. */
   function measure() {
     const d = frame?.contentDocument;
     if (!frame || !d?.documentElement) return;
     // Hidden (the calendar is showing): keep the last height until it's back.
-    if (frame.clientWidth === 0) return;
+    const width = frame.clientWidth;
+    if (width === 0) return;
+    // A new width lays the email out afresh.
+    if (heldWidth && heldWidth !== width) heldWidth = 0;
     // The root's own box, not scrollHeight: that is never less than the frame.
+    // Rounded up: offsetHeight rounds a 1020.5px email down, and a frame
+    // half a pixel short of its content is what used to make it scroll.
     // Unless the email still pins the root to the frame: then only
     // scrollHeight shows how far its content goes.
     const root = d.documentElement;
-    const own = root.scrollHeight > root.clientHeight + 1 ? root.scrollHeight : root.offsetHeight;
+    const box = Math.ceil(root.getBoundingClientRect().height);
+    const own = root.scrollHeight > root.clientHeight + 1 ? root.scrollHeight : box;
     const over = Math.max(24, own) - height;
-    if (Math.abs(over) <= 1) {
+    // Never shorter than the content (that cuts off its bottom); a couple of
+    // pixels taller is harmless and saves relayouts.
+    if (over <= 0 && over >= -2) {
       lastOver = 0;
       return;
     }
+    // Held after flip-flopping: only grow (an image arrived), never shrink back.
+    if (heldWidth && over < 0) return;
     // Content sized by the frame (100vh boxes) outgrows every new height by
-    // the same amount: stop growing instead of running away.
-    if (over > 0 && over === lastOver) return;
+    // the same amount: stop growing instead of running away, and let the
+    // rest scroll inside the frame.
+    if (over > 0 && over === lastOver) {
+      root.classList.add("own-scroll");
+      return;
+    }
+    // Some layouts never settle: each height makes the content want the
+    // other one (a line that wraps only at one of them). After a few
+    // turnarounds in a short time, keep the taller height for this width.
+    const now = performance.now();
+    changes = changes.filter((c) => now - c.t < FLIP_WINDOW);
+    changes.push({ t: now, height: height + over, grew: over > 0 });
+    let flips = 0;
+    for (let i = 1; i < changes.length; i++) if (changes[i].grew !== changes[i - 1].grew) flips++;
+    if (flips >= MAX_FLIPS) {
+      height = Math.max(own, ...changes.map((c) => c.height));
+      heldWidth = width;
+      changes = [];
+      lastOver = 0;
+      return;
+    }
     lastOver = over;
     height += over;
     cancelAnimationFrame(recheck);
@@ -129,6 +172,9 @@
 
   function prepare(d: Document) {
     prepared.add(d);
+    changes = [];
+    heldWidth = 0;
+    lastOver = 0;
     // Arabic paragraphs read from the right, English ones from the left.
     applyDirections(d.body, "view");
     useArabicFont(d.body);

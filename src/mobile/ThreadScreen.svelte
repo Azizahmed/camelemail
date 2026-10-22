@@ -29,11 +29,11 @@
   import { t, type MessageKey } from "../lib/i18n.svelte";
   import AiReply from "../components/thread/AiReply.svelte";
   import MessageCard from "../components/thread/MessageCard.svelte";
-  import SummaryCard from "../components/thread/SummaryCard.svelte";
   import MoveSheet from "./MoveSheet.svelte";
   import { back } from "./nav.svelte";
   import Sheet from "./Sheet.svelte";
   import SnoozeSheet from "./SnoozeSheet.svelte";
+  import SummaryCard from "./SummaryCard.svelte";
 
 
   // Captured on open: the list may move `mail.open` on while this screen leaves.
@@ -125,6 +125,17 @@
     queueMicrotask(() => scroller?.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" }));
   }
 
+  /** Show or hide the AI summary. Only a tap sends the conversation to the AI provider. */
+  function toggleSummary() {
+    if (showSummary) {
+      showSummary = false;
+      return;
+    }
+    if (!aiAvailable()) return;
+    showSummary = true;
+    scroller?.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   async function aiReplyDone(d: Draft) {
     aiReply = null;
     try {
@@ -182,6 +193,7 @@
       <button class="m-icon-btn" aria-label={inTrash ? t("m.home.deleteForever") : t("m.home.delete")} onclick={() => leave(() => (inTrash ? act({ type: "deleteForever" }, [ref]) : trashOrRestore([ref])))}><Trash2 size={18} strokeWidth={1.6} /></button>
       <button class="m-icon-btn" aria-label={t("m.home.markUnread")} onclick={() => leave(() => act({ type: "markUnread" }, [ref]))}><Mail size={18} strokeWidth={1.6} /></button>
       <button class="m-icon-btn" class:starred aria-label={starred ? t("m.home.unstar") : t("mset.action.star")} onclick={() => toggleStar([ref])}><Star size={18} strokeWidth={1.6} fill={starred ? "currentColor" : "none"} /></button>
+      <button class="m-icon-btn" class:ai-on={showSummary} aria-label={showSummary ? t("m.thread.hideSummary") : t("m.thread.summarize")} aria-pressed={showSummary} onclick={toggleSummary}><Sparkles size={18} strokeWidth={1.6} /></button>
       <button class="m-icon-btn" aria-label={t("m.home.more")} onclick={() => (moreOpen = true)}><MoreVertical size={18} strokeWidth={1.6} /></button>
     {/if}
   </header>
@@ -204,7 +216,7 @@
       </div>
 
       {#if showSummary}
-        <div class="summary"><SummaryCard accountId={detail.accountId} threadId={detail.threadId} onclose={() => (showSummary = false)} /></div>
+        <SummaryCard accountId={detail.accountId} threadId={detail.threadId} onclose={() => (showSummary = false)} />
       {/if}
 
       {#if detail.snoozedUntil}
@@ -253,9 +265,6 @@
 <Sheet bind:this={more} bind:open={moreOpen}>
   <button class="m-sheet-item" onclick={() => fromMore(() => (snoozeOpen = true))}><Clock3 size={18} strokeWidth={1.6} /> {t("mset.action.snooze")}</button>
   <button class="m-sheet-item" onclick={() => fromMore(() => (moveOpen = true))}><FolderInput size={18} strokeWidth={1.6} /> {t("m.home.moveTo")}</button>
-  {#if mail.ai.enabled}
-    <button class="m-sheet-item" onclick={() => fromMore(() => { if (showSummary || aiAvailable()) showSummary = !showSummary; })}><Sparkles size={18} strokeWidth={1.6} /> {showSummary ? t("m.thread.hideSummary") : t("m.thread.summarize")}</button>
-  {/if}
   {#if unsubMessage}
     <button class="m-sheet-item" onclick={() => fromMore(doUnsubscribe)}><MailMinus size={18} strokeWidth={1.6} /> {t("m.thread.unsubscribe")}</button>
   {/if}
@@ -284,6 +293,10 @@
   }
   .starred {
     color: var(--m-swipe-star);
+  }
+  .ai-on {
+    background: var(--m-accent-soft);
+    color: var(--m-accent);
   }
   .body {
     padding: 0 13px;
@@ -318,7 +331,6 @@
     height: 7px;
     border-radius: 50%;
   }
-  .summary,
   .ai {
     margin: 0 0 10px;
   }

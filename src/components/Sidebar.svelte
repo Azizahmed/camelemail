@@ -16,7 +16,6 @@
     PanelLeftOpen,
     Eye,
     EyeOff,
-    Plus,
     Send,
     Settings,
     CalendarDays,
@@ -208,7 +207,6 @@
         <button class="item" onclick={() => { openPage("unsubscribe"); if (!mail.sidebarDocked) mail.sidebarOpen = false; }} class:active={mail.space === "mail" && mail.page === "unsubscribe"}>
           <MailMinus size={14} /><span class="name">Subscriptions</span>
         </button>
-        <button class="item" onclick={() => api.openSettings("accounts")}><Plus size={14} /><span class="name">Add account</span></button>
         <button class="item" onclick={() => api.openSettings()}><Settings size={14} /><span class="name">Settings</span></button>
       </div>
     </div>

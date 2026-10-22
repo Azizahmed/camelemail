@@ -24,6 +24,7 @@
     Plug,
     CalendarDays,
     Eraser,
+    MailPlus,
   } from "@lucide/svelte";
   import { api } from "../lib/api";
   import { L } from "../lib/types";
@@ -74,6 +75,7 @@
       { id: "connections", label: "Connect AI agents (MCP)", category: "Actions", icon: Plug, run: () => api.openSettings("connections") },
       { id: "subscribe", label: "Subscribe to a calendar (iCal link)", category: "Actions", icon: CalendarDays, run: () => api.openSettings("calendar") },
       { id: "autoclean", label: "Auto-clean settings", category: "Actions", icon: Eraser, run: () => api.openSettings("autoclean") },
+      { id: "add-account", label: "Add an email account", category: "Actions", icon: MailPlus, run: () => api.openSettings("accounts") },
       { id: "inbox", label: "Go to Inbox", category: "Navigation", hint: keyHint("go.inbox"), icon: Inbox, run: () => navigate(mail.view.accountId, L.INBOX) },
       { id: "calendar", label: "Go to Calendar", category: "Navigation", hint: keyHint("go.calendar"), icon: CalendarDays, run: showCalendar },
       ...(mail.settings?.smartInbox

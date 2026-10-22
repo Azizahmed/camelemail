@@ -3,7 +3,7 @@
 //! calling. Also the prompts for the one-shot writing tasks (summarize,
 //! reply, compose, rewrite) and Smart Inbox sorting.
 
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -16,8 +16,27 @@ use crate::compose::escape_html;
 use crate::mcp::sse::SseParser;
 use crate::model::{EmailAddress, MessageFull, ThreadDetail};
 
-/// Secret-store id of the API key.
+/// Secret-store id of the API key the user entered (before AI was set up by
+/// the organisation; deleted when the setup moves to a Camel Mail account).
 pub const KEY_SECRET_ID: &str = "ai-api-key";
+/// Secret-store id of the organisation's AI key on this device.
+pub const ORG_KEY_SECRET_ID: &str = "org-ai-key";
+
+/// The provider refused the API key (HTTP 401/403).
+#[derive(Debug)]
+pub struct KeyRejected(pub String);
+
+impl std::fmt::Display for KeyRejected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for KeyRejected {}
+
+/// Fetches the key again (the organisation's key changed or this device
+/// has none yet). `Ok(None)`: there's no key.
+pub type KeySource = Arc<dyn Fn() -> futures::future::BoxFuture<'static, Result<Option<String>>> + Send + Sync>;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -181,7 +200,9 @@ impl Turn {
 pub struct Client {
     http: reqwest::Client,
     settings: AiSettings,
-    key: Option<String>,
+    key: Mutex<Option<String>>,
+    /// Where a refused (or missing) key is fetched again, once per request.
+    refetch: Option<KeySource>,
 }
 
 /// HTTP client for AI providers: long read timeout for slow models, no total timeout
@@ -197,6 +218,13 @@ pub fn http_client() -> reqwest::Client {
 
 impl Client {
     pub fn new(http: reqwest::Client, settings: AiSettings, key: Option<String>) -> Result<Client> {
+        Client::with_key_source(http, settings, key, None)
+    }
+
+    /// With `refetch`, a key the provider refuses (or a missing one) is
+    /// fetched again before giving up: the organisation's key lives on the
+    /// Camel Mail server.
+    pub fn with_key_source(http: reqwest::Client, settings: AiSettings, key: Option<String>, refetch: Option<KeySource>) -> Result<Client> {
         if settings.base_url.trim().is_empty() {
             bail!("Set the AI provider's API URL in Settings → AI Assistant");
         }
@@ -204,22 +232,26 @@ impl Client {
             bail!("Choose a model in Settings → AI Assistant");
         }
         let key = key.filter(|k| !k.trim().is_empty());
-        if key.is_none() && !settings.is_local() {
+        if key.is_none() && !settings.is_local() && refetch.is_none() {
             bail!("Add your API key in Settings → AI Assistant");
         }
-        Ok(Client { http, settings, key })
+        Ok(Client { http, settings, key: Mutex::new(key), refetch })
     }
 
     pub fn settings(&self) -> &AiSettings {
         &self.settings
     }
 
-    fn request(&self, url: &str) -> reqwest::RequestBuilder {
-        self.auth(self.http.post(url).header("content-type", "application/json"))
+    fn key(&self) -> Option<String> {
+        self.key.lock().unwrap().clone()
     }
 
-    fn auth(&self, mut r: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
-        if let Some(k) = &self.key {
+    fn request(&self, url: &str, key: Option<&str>) -> reqwest::RequestBuilder {
+        self.auth(self.http.post(url).header("content-type", "application/json"), key)
+    }
+
+    fn auth(&self, mut r: reqwest::RequestBuilder, key: Option<&str>) -> reqwest::RequestBuilder {
+        if let Some(k) = key {
             if self.settings.anthropic() {
                 r = r.header("x-api-key", k);
                 // Most Anthropic-compatible gateways take a bearer token instead.
@@ -236,13 +268,61 @@ impl Client {
         r
     }
 
+    /// The key to use, fetched first when there's none and it can be.
+    async fn current_key(&self) -> Result<Option<String>> {
+        if let Some(k) = self.key() {
+            return Ok(Some(k));
+        }
+        match &self.refetch {
+            Some(f) if !self.settings.is_local() => {
+                let k = f().await?.filter(|k| !k.trim().is_empty());
+                *self.key.lock().unwrap() = k.clone();
+                if k.is_none() {
+                    bail!("Your organisation hasn't added an API key for AI assistance yet");
+                }
+                Ok(k)
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// The provider refused `used`: fetch the key again. A different key
+    /// means try once more.
+    async fn refetched(&self, used: Option<&str>) -> Option<String> {
+        let f = self.refetch.as_ref()?;
+        match f().await {
+            Ok(Some(k)) if !k.trim().is_empty() && Some(k.as_str()) != used => {
+                *self.key.lock().unwrap() = Some(k.clone());
+                Some(k)
+            }
+            Ok(_) => None,
+            Err(e) => {
+                tracing::info!("couldn't fetch the AI key again: {e:#}");
+                None
+            }
+        }
+    }
+
+    /// Send a request built by `build` with the key; when the provider
+    /// refuses the key, fetch it again and retry once.
+    async fn send(&self, build: impl Fn(Option<&str>) -> reqwest::RequestBuilder) -> Result<reqwest::Response> {
+        let key = self.current_key().await?;
+        let resp = build(key.as_deref()).send().await.context("contacting the AI provider")?;
+        if matches!(resp.status().as_u16(), 401 | 403) {
+            if let Some(new) = self.refetched(key.as_deref()).await {
+                return build(Some(&new)).send().await.context("contacting the AI provider");
+            }
+        }
+        Ok(resp)
+    }
+
     /// Model ids the provider offers.
     pub async fn list_models(&self) -> Result<Vec<String>> {
-        let r = self.auth(self.http.get(self.settings.models_endpoint())).send().await.context("contacting the AI provider")?;
+        let r = self.send(|key| self.auth(self.http.get(self.settings.models_endpoint()), key)).await?;
         let status = r.status();
         let body = r.text().await.unwrap_or_default();
         if !status.is_success() {
-            bail!("{}", api_error(status, &body));
+            return Err(api_failure(status, &body));
         }
         let v: Value = serde_json::from_str(&body).context("unexpected reply from the provider")?;
         let list = v.get("data").or_else(|| v.get("models")).and_then(|d| d.as_array()).cloned().unwrap_or_default();
@@ -270,16 +350,12 @@ impl Client {
         } else {
             openai_body(&self.settings, system, messages, tools, max_tokens)
         };
-        let resp = self
-            .request(&self.settings.endpoint())
-            .json(&body)
-            .send()
-            .await
-            .context("contacting the AI provider")?;
+        let endpoint = self.settings.endpoint();
+        let resp = self.send(|key| self.request(&endpoint, key).json(&body)).await?;
         let status = resp.status();
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
-            bail!("{}", api_error(status, &text));
+            return Err(api_failure(status, &text));
         }
         let is_sse = resp
             .headers()
@@ -315,6 +391,16 @@ impl Client {
     pub async fn complete(&self, system: &str, user: &str, max_tokens: Option<u32>) -> Result<String> {
         let turn = self.stream(system, &[Message::user(user)], &[], max_tokens, &mut |_| {}).await?;
         Ok(turn.text())
+    }
+}
+
+/// An unsuccessful answer as an error; a refused key is a [`KeyRejected`].
+fn api_failure(status: reqwest::StatusCode, body: &str) -> anyhow::Error {
+    let msg = api_error(status, body);
+    if matches!(status.as_u16(), 401 | 403) {
+        anyhow::Error::new(KeyRejected(msg))
+    } else {
+        anyhow!(msg)
     }
 }
 

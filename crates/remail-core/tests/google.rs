@@ -49,11 +49,11 @@ async fn google_sign_in() {
     let mut providers = remail_core::proto::org::Providers::default();
     providers.google_app.client_id = "gclient".into();
     providers.google = false;
-    engine.set_org(Some(engine::OrgAccess { providers: providers.clone(), google_server_exchange: false }));
+    engine.set_org(Some(engine::OrgAccess { providers: providers.clone(), google_server_exchange: false, ..Default::default() }));
     let off = engine::friendly_error(&engine.add_google_account(|_| Ok(()), req()).await.unwrap_err());
     assert!(off.starts_with("cloud:provider_not_allowed:"), "{off}");
     providers.google = true;
-    engine.set_org(Some(engine::OrgAccess { providers, google_server_exchange: false }));
+    engine.set_org(Some(engine::OrgAccess { providers, google_server_exchange: false, ..Default::default() }));
 
     let added = engine.add_google_account(google_browser(idp.clone(), "code-1", "Me@Gmail.com", "sub-me"), req()).await.unwrap();
     assert_eq!(added.account.email, "me@gmail.com");
@@ -81,7 +81,7 @@ async fn google_sign_in() {
     let engine = Engine::with_store(Store::open(&dir.path().join("remail.db")).unwrap(), secrets.clone(), Arc::new(Quiet)).unwrap();
     let mut providers = remail_core::proto::org::Providers::default();
     providers.google_app.client_id = "gclient".into();
-    engine.set_org(Some(engine::OrgAccess { providers, google_server_exchange: false }));
+    engine.set_org(Some(engine::OrgAccess { providers, google_server_exchange: false, ..Default::default() }));
     let account = engine.accounts().unwrap().into_iter().find(|a| a.id == id).unwrap();
     let changed = NewAccount { email: account.email.clone(), display_name: "Me".into(), username: String::new(), password: String::new(), imap: imap.clone(), smtp: smtp.clone(), allow_invalid_certs: false };
     engine.update_account(&id, changed).await.unwrap();

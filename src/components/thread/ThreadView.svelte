@@ -360,6 +360,9 @@
     inset: 0;
     background: var(--surface);
     overflow-y: auto;
+    /* Room for the scrollbar either way: the email's width (and so its line
+       breaks and height) doesn't change when the thread starts to scroll. */
+    scrollbar-gutter: stable;
     z-index: 100;
     animation: fade 0.15s ease;
     padding: 12px 20px 0;

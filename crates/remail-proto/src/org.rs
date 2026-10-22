@@ -1,5 +1,7 @@
-//! Organisation configuration as clients see it. Secrets (AI key, OAuth
-//! client secrets) live in [`OrgSecrets`] and never leave the server.
+//! Organisation configuration as clients see it. Secrets live in
+//! [`OrgSecrets`]: the server-side Google client secret never leaves the
+//! server; the AI key goes only to signed-in members' devices, one at a time
+//! through `GET /v1/org/ai-key` (see [`OrgAi`]).
 
 use serde::{Deserialize, Serialize};
 
@@ -194,6 +196,34 @@ pub struct Branding {
     pub accent: String,
 }
 
+/// The organisation's AI assistant, set up by an admin. Devices call the
+/// provider themselves (mail never passes through the server), so while it
+/// is on they fetch the key from `GET /v1/org/ai-key` and keep it in their
+/// secret store; it isn't part of this config.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct OrgAi {
+    pub enabled: bool,
+    /// `openai` (Chat Completions) | `anthropic` (Messages)
+    pub provider: String,
+    pub base_url: String,
+    pub model: String,
+    pub max_tokens: u32,
+}
+
+impl Default for OrgAi {
+    fn default() -> Self {
+        OrgAi { enabled: false, provider: "openai".into(), base_url: String::new(), model: String::new(), max_tokens: 4096 }
+    }
+}
+
+impl OrgAi {
+    /// On, with somewhere to send requests to.
+    pub fn ready(&self) -> bool {
+        self.enabled && !self.base_url.trim().is_empty() && !self.model.trim().is_empty()
+    }
+}
+
 /// What every signed-in client of the org receives (section `org`).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -202,24 +232,44 @@ pub struct OrgConfig {
     pub providers: Providers,
     pub policies: Policies,
     pub branding: Branding,
+    pub ai: OrgAi,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+/// The organisation's AI key. Only `api_key` is used: the provider, URL and
+/// model are in [`OrgAi`] (the other fields stay for older stored blobs).
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AiSecret {
-    /// `openai` | `anthropic`
     pub provider: String,
     pub base_url: String,
+    /// Delivered to members' devices by `GET /v1/org/ai-key` while org AI
+    /// is on; never part of any other response.
     pub api_key: String,
     pub models: Vec<String>,
     pub default_model: String,
     pub max_tokens: u32,
 }
 
-/// Server-only. Never serialised into any response.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+impl std::fmt::Debug for AiSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AiSecret").field("api_key_set", &!self.api_key.is_empty()).finish_non_exhaustive()
+    }
+}
+
+/// Server-only. Never serialised into any response (the AI key goes out
+/// alone, through `GET /v1/org/ai-key`).
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct OrgSecrets {
     pub ai: AiSecret,
     pub google_client_secret: String,
+}
+
+impl std::fmt::Debug for OrgSecrets {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OrgSecrets")
+            .field("ai", &self.ai)
+            .field("google_client_secret_set", &!self.google_client_secret.is_empty())
+            .finish()
+    }
 }

@@ -31,6 +31,8 @@ pub struct Inner {
     /// Google refreshes through the server, per user: one per mailbox an
     /// hour normally; a burst covers a start with many mailboxes.
     google_limiter: Limiter,
+    /// Admin routes and the org AI key, per user.
+    user_limiter: Limiter,
     pub lockouts: Lockouts,
     /// A real argon2 hash of a random password, verified against for unknown
     /// e-mails so they take as long as known ones.
@@ -61,6 +63,7 @@ impl AppState {
             ip_limiter: Limiter::new(r.ip_burst, r.ip_per_sec),
             account_limiter: Limiter::new(r.account_burst, r.account_per_sec),
             google_limiter: Limiter::new(r.ip_burst.max(30), r.ip_per_sec.max(0.5)),
+            user_limiter: Limiter::new(r.ip_burst.max(60), r.ip_per_sec.max(1.0)),
             lockouts: Lockouts::new(cfg.lockout_base, cfg.lockout_max),
             cfg,
             db,
@@ -82,6 +85,13 @@ impl AppState {
     /// Per-user budget for Google refreshes through the server.
     pub fn limit_google_refresh(&self, user_id: &str) -> Result<(), AppError> {
         self.google_limiter
+            .check(user_id)
+            .map_err(|secs| AppError::retry_after(ErrorCode::RateLimited, "Too many requests. Try again shortly.", secs))
+    }
+
+    /// Per-user budget for admin routes and the org AI key.
+    pub fn limit_user(&self, user_id: &str) -> Result<(), AppError> {
+        self.user_limiter
             .check(user_id)
             .map_err(|secs| AppError::retry_after(ErrorCode::RateLimited, "Too many requests. Try again shortly.", secs))
     }
