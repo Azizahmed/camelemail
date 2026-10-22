@@ -4,4 +4,4 @@
 # also rewrites the FROM line below to each new image digest, so the platform
 # only pulls a ready image and never compiles Rust. Don't edit the FROM line
 # by hand. Runtime settings and the master key: deploy/server/README.md.
-FROM ghcr.io/azizahmed/remail-server@sha256:b70d6c50944bf859dc91b914dcf36fdf88e3b59563e188216c264a69d62ea634
+FROM ghcr.io/azizahmed/remail-server@sha256:dfc6834305735f98f8372d01e6f43ab87fa0ea2637330b71f1a37d4c66f11157
