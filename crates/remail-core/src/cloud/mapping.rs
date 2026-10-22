@@ -379,6 +379,12 @@ fn collect_prefs(engine: &Engine) -> Result<Local> {
     r.fields.insert("ai.smartSort".into(), json!(ai.smart_sort));
     let ui = engine.ui_prefs();
     r.fields.insert("lastComposeAccount".into(), json!(ui.last_compose_account));
+    if let Some(pins) = &ui.mobile_pins {
+        r.fields.insert("mobilePins".into(), json!(pins));
+    }
+    if let Some(swipe) = &ui.swipe {
+        r.fields.insert("swipe".into(), json!(swipe));
+    }
     if let Some(h) = &ui.sidebar_hidden {
         // Folder entries travel with their accounts (`hiddenFolders`).
         let global: Vec<String> = h.iter().filter(|e| !e.starts_with("folder:")).cloned().collect();
@@ -896,6 +902,12 @@ fn apply_prefs(engine: &Engine, doc: &SectionDoc) -> Result<()> {
     let ui_before = ui.clone();
     if let Some(x) = r.get("lastComposeAccount") {
         ui.last_compose_account = x.as_str().map(String::from);
+    }
+    if let Some(x) = r.get("mobilePins") {
+        ui.mobile_pins = serde_json::from_value(x.clone()).unwrap_or(None);
+    }
+    if let Some(x) = r.get("swipe") {
+        ui.swipe = serde_json::from_value(x.clone()).unwrap_or(None);
     }
     if r.sets.contains_key("sidebarHidden") {
         let mut list = r.set_items("sidebarHidden");

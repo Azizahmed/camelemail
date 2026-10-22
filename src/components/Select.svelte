@@ -6,6 +6,10 @@
 <script lang="ts" generics="T extends string | number">
   import { Check, ChevronDown } from "@lucide/svelte";
   import Popover from "./menus/Popover.svelte";
+  import { isMobile } from "../lib/platform";
+
+  /** Phones: taller rows for fingers, and the list keeps to the button's end. */
+  const ROW = isMobile ? 46 : 32;
 
   let {
     value = $bindable(),
@@ -88,7 +92,7 @@
 </button>
 
 {#if open}
-  <Popover anchor={open} width={Math.max(open.width, 160)} height={Math.min(320, options.length * 32 + 12)} align="left" onclose={() => (open = null)}>
+  <Popover anchor={open} width={Math.max(open.width, 160)} height={Math.min(isMobile ? 420 : 320, options.length * ROW + 12)} align={isMobile ? "right" : "left"} onclose={() => (open = null)}>
     <div class="list" role="listbox" aria-label={label}>
       {#each options as o, i (o.value)}
         <button

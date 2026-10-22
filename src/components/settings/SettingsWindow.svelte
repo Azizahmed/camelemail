@@ -23,7 +23,15 @@
   import Toasts from "../Toasts.svelte";
   import Toggle from "../Toggle.svelte";
 
-  let { initialSection }: { initialSection?: string } = $props();
+  let {
+    initialSection,
+    embedded = false,
+  }: {
+    initialSection?: string;
+    /** Inside a phone settings page (src/mobile/SettingsPage.svelte): only
+     *  `initialSection`, without the rail, the window or desktop-only rows. */
+    embedded?: boolean;
+  } = $props();
 
   // Sections with a `key` are translated; the rest are English until the app's translation milestone.
   const SECTIONS: readonly { id: string; label: string; key?: MessageKey; icon: typeof Users }[] = [
@@ -62,10 +70,12 @@
     let disposed = false;
     // Closing before a listener is in place must still remove it.
     const keep = (u: () => void) => (disposed ? u() : un.push(u));
-    listen<string>("settings-section", (e) => {
-      const s = sectionFor(e.payload);
-      if (s) section = s;
-    }).then(keep);
+    // A phone page shows one section; switching is this window's alone.
+    if (!embedded)
+      listen<string>("settings-section", (e) => {
+        const s = sectionFor(e.payload);
+        if (s) section = s;
+      }).then(keep);
     // Changes made elsewhere (e.g. the layout toggle in the main window); our own saves answer with the newest state.
     listen<AppSettings>("settings-changed", (e) => {
       if (saving === 0) settings = e.payload;
@@ -114,7 +124,7 @@
   }
 
   function onkeydown(e: KeyboardEvent) {
-    if (e.key !== "Escape" || e.defaultPrevented) return;
+    if (embedded || e.key !== "Escape" || e.defaultPrevented) return;
     // Escape leaves the field (keeping the edit) rather than closing the window over it.
     if (typingIn(e.target)) e.target.blur();
     else getCurrentWindow().close();
@@ -474,6 +484,29 @@
   </div>
 {/snippet}
 
+<!-- Under General on the desktop, beside Auto-clean on the phone. -->
+{#snippet smartInbox()}
+  <div class="group-title">Smart Inbox</div>
+  {@render row("Smart Inbox", "Split the Inbox into Important and Other (updates, promotions, social, forums).", smartCtl)}
+  {#snippet smartCtl()}<Toggle label="Smart Inbox" checked={settings!.smartInbox} onchange={(v) => update({ smartInbox: v })} />{/snippet}
+  {#if settings!.smartInbox}
+    {@render row("Notify only for Important email", null, impCtl)}
+    {#snippet impCtl()}<Toggle label="Notify only for Important email" checked={settings!.notifyImportantOnly} onchange={(v) => update({ notifyImportantOnly: v })} />{/snippet}
+    {#if rules.length > 0}
+      <div class="rules">
+        <div class="row-desc">Senders you've sorted yourself:</div>
+        {#each rules as r (r.email)}
+          <div class="rule">
+            <span class="rule-email selectable">{r.email}</span>
+            <span class="badge">{BUCKET_NAMES[r.category] ?? r.category}</span>
+            <button class="icon-btn" title="Forget" onclick={() => removeRule(r)}><X size={13} /></button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  {/if}
+{/snippet}
+
 {#snippet row(label: string, desc: string | null, control: import("svelte").Snippet)}
   <div class="row">
     <div class="row-text">
@@ -484,16 +517,18 @@
   </div>
 {/snippet}
 
-<div class="win">
-  <nav class="rail" aria-label="Settings sections">
-    <div class="rail-title">Settings</div>
-    {#each SECTIONS as s}
-      <button class="rail-item" class:active={section === s.id} aria-current={section === s.id ? "page" : undefined} onclick={() => (section = s.id)}>
-        <s.icon size={16} />
-        {sectionLabel(s)}
-      </button>
-    {/each}
-  </nav>
+<div class="win" class:embedded>
+  {#if !embedded}
+    <nav class="rail" aria-label="Settings sections">
+      <div class="rail-title">Settings</div>
+      {#each SECTIONS as s}
+        <button class="rail-item" class:active={section === s.id} aria-current={section === s.id ? "page" : undefined} onclick={() => (section = s.id)}>
+          <s.icon size={16} />
+          {sectionLabel(s)}
+        </button>
+      {/each}
+    </nav>
+  {/if}
 
   <main class="content" bind:this={contentEl}>
     <div class="inner">
@@ -586,34 +621,18 @@
           </div>
         {/snippet}
 
-        {@render row("Layout", "Split view shows the open email beside the list.", layoutCtl)}
-        {#snippet layoutCtl()}
-          <div class="seg" role="radiogroup" aria-label="Layout">
-            {#each [["split", "Split view"], ["list", "Full-width list"]] as [v, l]}
-              <button role="radio" aria-checked={settings!.layout === v} class:on={settings!.layout === v} onclick={() => update({ layout: v as AppSettings["layout"] })}>{l}</button>
-            {/each}
-          </div>
-        {/snippet}
-
-        <div class="group-title">Smart Inbox</div>
-        {@render row("Smart Inbox", "Split the Inbox into Important and Other (updates, promotions, social, forums).", smartCtl)}
-        {#snippet smartCtl()}<Toggle label="Smart Inbox" checked={settings!.smartInbox} onchange={(v) => update({ smartInbox: v })} />{/snippet}
-        {#if settings.smartInbox}
-          {@render row("Notify only for Important email", null, impCtl)}
-          {#snippet impCtl()}<Toggle label="Notify only for Important email" checked={settings!.notifyImportantOnly} onchange={(v) => update({ notifyImportantOnly: v })} />{/snippet}
-          {#if rules.length > 0}
-            <div class="rules">
-              <div class="row-desc">Senders you've sorted yourself:</div>
-              {#each rules as r (r.email)}
-                <div class="rule">
-                  <span class="rule-email selectable">{r.email}</span>
-                  <span class="badge">{BUCKET_NAMES[r.category] ?? r.category}</span>
-                  <button class="icon-btn" title="Forget" onclick={() => removeRule(r)}><X size={13} /></button>
-                </div>
+        {#if !embedded}
+          {@render row("Layout", "Split view shows the open email beside the list.", layoutCtl)}
+          {#snippet layoutCtl()}
+            <div class="seg" role="radiogroup" aria-label="Layout">
+              {#each [["split", "Split view"], ["list", "Full-width list"]] as [v, l]}
+                <button role="radio" aria-checked={settings!.layout === v} class:on={settings!.layout === v} onclick={() => update({ layout: v as AppSettings["layout"] })}>{l}</button>
               {/each}
             </div>
-          {/if}
+          {/snippet}
         {/if}
+
+        {#if !embedded}{@render smartInbox()}{/if}
 
         <div class="group-title">Sending</div>
         {@render row("Undo send delay", "How long you can take back a sent email.", undoCtl)}
@@ -652,15 +671,19 @@
         {@render row("Load remote images", "Remote images can reveal when you open an email. When off, Remail asks per message.", imgCtl)}
         {#snippet imgCtl()}<Toggle label="Load remote images" checked={settings!.loadRemoteImages} onchange={(v) => update({ loadRemoteImages: v })} />{/snippet}
 
-        <div class="group-title">Notifications</div>
-        {@render row("Notifications", "Show a desktop notification for new mail", notifCtl)}
-        {#snippet notifCtl()}<Toggle label="Notifications" checked={settings!.notifications} onchange={(v) => update({ notifications: v })} />{/snippet}
-        {@render row("Notify when a snoozed email returns", null, wakeCtl)}
-        {#snippet wakeCtl()}<Toggle label="Notify when a snoozed email returns" checked={settings!.notifyOnSnoozeWake} onchange={(v) => update({ notifyOnSnoozeWake: v })} />{/snippet}
+        {#if !embedded}
+          <div class="group-title">Notifications</div>
+          {@render row("Notifications", "Show a desktop notification for new mail", notifCtl)}
+          {#snippet notifCtl()}<Toggle label="Notifications" checked={settings!.notifications} onchange={(v) => update({ notifications: v })} />{/snippet}
+          {@render row("Notify when a snoozed email returns", null, wakeCtl)}
+          {#snippet wakeCtl()}<Toggle label="Notify when a snoozed email returns" checked={settings!.notifyOnSnoozeWake} onchange={(v) => update({ notifyOnSnoozeWake: v })} />{/snippet}
+        {/if}
 
         <div class="group-title">System</div>
-        {@render row("Keep running in the tray when the window is closed", "Needed for Send Later and snooze reminders while the window is closed.", trayCtl)}
-        {#snippet trayCtl()}<Toggle label="Keep running in the tray" checked={settings!.closeToTray} onchange={(v) => update({ closeToTray: v })} />{/snippet}
+        {#if !embedded}
+          {@render row("Keep running in the tray when the window is closed", "Needed for Send Later and snooze reminders while the window is closed.", trayCtl)}
+          {#snippet trayCtl()}<Toggle label="Keep running in the tray" checked={settings!.closeToTray} onchange={(v) => update({ closeToTray: v })} />{/snippet}
+        {/if}
         {@render row("Sync interval", "How often Remail checks for new mail.", syncCtl)}
         {#snippet syncCtl()}
           <Select width={160} label="Sync interval" value={settings!.syncIntervalSeconds} options={[{ value: 15, label: "15 seconds" }, { value: 30, label: "30 seconds" }, { value: 60, label: "1 minute" }, { value: 300, label: "5 minutes" }]} onchange={(v) => update({ syncIntervalSeconds: v })} />
@@ -668,6 +691,10 @@
 
       {:else if section === "autoclean" && settings}
         <h1>Auto-clean</h1>
+        {#if embedded}
+          {@render smartInbox()}
+          <div class="group-title">Auto-clean</div>
+        {/if}
         <p class="intro">Remove read mail you don't need to keep, so your Inbox stays clear. Choose which kinds of email and how long after you've read them.</p>
         {@render row("Auto-clean read email", null, cleanCtl)}
         {#snippet cleanCtl()}<Toggle label="Auto-clean read email" checked={settings!.autoClean.enabled} onchange={(v) => update({ autoClean: { ...settings!.autoClean, enabled: v } })} />{/snippet}
@@ -793,20 +820,35 @@
           {@render row("Data folder", null, dirCtl)}
           {#snippet dirCtl()}<span class="path selectable">{info!.dataDir}</span>{/snippet}
         {/if}
-        <p class="note">Scheduled emails are sent by Remail on this computer, so Remail needs to be running at the scheduled time.</p>
+        <p class="note">Scheduled emails are sent by Remail on this {embedded ? "phone" : "computer"}, so Remail needs to be running at the scheduled time.</p>
       {/if}
     </div>
   </main>
 </div>
 
-<ConfirmDialog />
-<Toasts />
+{#if !embedded}
+  <ConfirmDialog />
+  <Toasts />
+{/if}
 
 <style>
   .win {
     display: flex;
     height: 100vh;
     background: var(--surface);
+  }
+  /* On a phone page: the page scrolls and has the background. */
+  .win.embedded {
+    display: block;
+    height: auto;
+    background: none;
+  }
+  .embedded .content {
+    overflow: visible;
+  }
+  .embedded .inner {
+    max-width: none;
+    padding: 0;
   }
   .rail {
     width: 190px;

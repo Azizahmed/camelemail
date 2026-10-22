@@ -21,7 +21,7 @@ class MemoryStorage {
   removeItem = (k: string) => void this.data.delete(k);
 }
 
-const EMPTY: UiPrefs = { shortcuts: {}, sidebarHidden: null, lastComposeAccount: null };
+const EMPTY: UiPrefs = { shortcuts: {}, sidebarHidden: null, lastComposeAccount: null, mobilePins: null, swipe: null };
 
 describe("UI prefs moving out of localStorage", () => {
   let storage: MemoryStorage;
@@ -51,7 +51,7 @@ describe("UI prefs moving out of localStorage", () => {
   it("keeps what another device already saved", async () => {
     storage.setItem("shortcuts", JSON.stringify({ archive: ["y"] }));
     storage.setItem("lastComposeAccount", "acc_old");
-    const synced: UiPrefs = { shortcuts: { compose: ["Ctrl+M"] }, sidebarHidden: ["TRASH"], lastComposeAccount: null };
+    const synced: UiPrefs = { shortcuts: { compose: ["Ctrl+M"] }, sidebarHidden: ["TRASH"], lastComposeAccount: null, mobilePins: null, swipe: null };
     const push = vi.fn((_: Partial<UiPrefs>) => Promise.resolve());
     const out = await migrateLegacyPrefs(synced, storage, push);
     expect(push).toHaveBeenCalledWith({ lastComposeAccount: "acc_old" });

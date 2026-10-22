@@ -13,6 +13,7 @@
   import { gateScreen, windowReady } from "../lib/gate";
   import { applyLanguageSetting, t } from "../lib/i18n.svelte";
   import { showCalendar } from "../lib/mail.svelte";
+  import { isMobile } from "../lib/platform";
   import { applyTheme } from "../lib/ui.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import Toasts from "./Toasts.svelte";
@@ -98,6 +99,12 @@
   {:else}
     {@render waiting()}
   {/if}
+{:else if screen === "app" && isMobile}
+  {#await import("../mobile/MobileApp.svelte") then { default: MobileApp }}
+    <MobileApp />
+  {:catch e}
+    {@render failed(e)}
+  {/await}
 {:else if screen === "app"}
   {#await import("./MainWindow.svelte") then { default: MainWindow }}
     <MainWindow />

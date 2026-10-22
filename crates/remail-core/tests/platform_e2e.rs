@@ -394,6 +394,7 @@ async fn platform_end_to_end() {
         shortcuts: Some(shortcuts.clone()),
         sidebar_hidden: Some(Some(vec!["SPAM".into(), format!("folder:{}:Receipts", acc.id)])),
         last_compose_account: Some(Some(acc.id.clone())),
+        ..Default::default()
     })
     .unwrap();
     // Everything reaches the server without anyone asking for a sync.

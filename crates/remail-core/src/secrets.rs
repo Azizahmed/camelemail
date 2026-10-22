@@ -1,13 +1,18 @@
 //! Account passwords live in the OS keyring (Secret Service on Linux),
 //! never in the database. When no keyring is available (headless test
-//! machines) they fall back to a 0600 file next to the database.
+//! machines) they fall back to a 0600 file next to the database. Phones
+//! have no such keyring: they keep the same file, sealed with a key that
+//! lives in the Android Keystore or iOS Keychain ([`FileStore::sealed`]).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
+use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM, NONCE_LEN};
+use ring::rand::{SecureRandom, SystemRandom};
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const SERVICE: &str = "app.remail.desktop";
 
 pub trait SecretStore: Send + Sync {
@@ -17,18 +22,21 @@ pub trait SecretStore: Send + Sync {
 }
 
 /// OS keyring with a file fallback.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub struct KeyringStore {
     fallback: FileStore,
     /// Process-lifetime cache so sync doesn't hit D-Bus every tick.
     cache: Mutex<HashMap<String, String>>,
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl KeyringStore {
     pub fn new(fallback_path: PathBuf) -> Self {
         Self { fallback: FileStore::new(fallback_path), cache: Mutex::new(HashMap::new()) }
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl SecretStore for KeyringStore {
     fn set(&self, account_id: &str, secret: &str) -> Result<()> {
         let keyring_ok = keyring::Entry::new(SERVICE, account_id).and_then(|e| e.set_password(secret)).is_ok();
@@ -66,19 +74,60 @@ impl SecretStore for KeyringStore {
     }
 }
 
-/// JSON map in a user-only file.
+/// JSON map in a user-only file, optionally sealed (AES-256-GCM) with a key
+/// kept outside the file.
 pub struct FileStore {
     path: PathBuf,
     lock: Mutex<()>,
+    seal: Option<LessSafeKey>,
 }
 
 impl FileStore {
     pub fn new(path: PathBuf) -> Self {
-        Self { path, lock: Mutex::new(()) }
+        Self { path, lock: Mutex::new(()), seal: None }
+    }
+
+    /// A store whose file is encrypted with `key` (32 bytes), for platforms
+    /// whose secure storage holds a key rather than every secret.
+    pub fn sealed(path: PathBuf, key: &[u8]) -> Result<Self> {
+        let key = UnboundKey::new(&AES_256_GCM, key).map_err(|_| anyhow!("the credentials key must be 32 bytes"))?;
+        Ok(Self { path, lock: Mutex::new(()), seal: Some(LessSafeKey::new(key)) })
     }
 
     fn read(&self) -> HashMap<String, String> {
-        std::fs::read(&self.path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+        let Ok(bytes) = std::fs::read(&self.path) else { return HashMap::new() };
+        let plain = match &self.seal {
+            None => bytes,
+            Some(key) => {
+                if bytes.len() < NONCE_LEN {
+                    return HashMap::new();
+                }
+                let (n, ct) = bytes.split_at(NONCE_LEN);
+                let mut buf = ct.to_vec();
+                let opened = Nonce::try_assume_unique_for_key(n).ok().and_then(|n| key.open_in_place(n, Aad::from(b"remail-credentials"), &mut buf).ok());
+                match opened {
+                    Some(p) => p.to_vec(),
+                    None => {
+                        // Another key (the app's Keystore entry was reset): start over.
+                        tracing::warn!("stored credentials can't be decrypted; they will be fetched again");
+                        return HashMap::new();
+                    }
+                }
+            }
+        };
+        serde_json::from_slice(&plain).unwrap_or_default()
+    }
+
+    fn encode(&self, map: &HashMap<String, String>) -> Result<Vec<u8>> {
+        let mut buf = serde_json::to_vec(map)?;
+        let Some(key) = &self.seal else { return Ok(buf) };
+        let mut nonce = [0u8; NONCE_LEN];
+        SystemRandom::new().fill(&mut nonce).map_err(|_| anyhow!("no system random numbers"))?;
+        key.seal_in_place_append_tag(Nonce::assume_unique_for_key(nonce), Aad::from(b"remail-credentials"), &mut buf)
+            .map_err(|_| anyhow!("encrypting credentials failed"))?;
+        let mut out = nonce.to_vec();
+        out.extend_from_slice(&buf);
+        Ok(out)
     }
 
     fn write(&self, map: &HashMap<String, String>) -> Result<()> {
@@ -93,7 +142,7 @@ impl FileStore {
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
         let mut file = options.open(&tmp).context("saving credentials")?;
-        std::io::Write::write_all(&mut file, &serde_json::to_vec(map)?)?;
+        std::io::Write::write_all(&mut file, &self.encode(map)?)?;
         file.sync_all()?;
         drop(file);
         std::fs::rename(&tmp, &self.path).context("saving credentials")?;
@@ -165,5 +214,19 @@ mod tests {
         store.delete("acct").expect("delete");
         assert_eq!(store.get("acct").expect("get"), None);
         assert_eq!(FileStore::new(path).get("other").expect("get").as_deref(), Some("x"));
+    }
+
+    #[test]
+    fn sealed_file_store_hides_secrets_and_needs_its_key() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("credentials.json");
+        let store = FileStore::sealed(path.clone(), &[7u8; 32]).expect("store");
+        store.set("acct", "hunter2").expect("set");
+        let raw = std::fs::read(&path).expect("file");
+        assert!(!String::from_utf8_lossy(&raw).contains("hunter2"));
+        assert_eq!(FileStore::sealed(path.clone(), &[7u8; 32]).expect("store").get("acct").expect("get").as_deref(), Some("hunter2"));
+        // Another key reads nothing (and doesn't fail).
+        assert_eq!(FileStore::sealed(path, &[8u8; 32]).expect("store").get("acct").expect("get"), None);
+        assert!(FileStore::sealed(dir.path().join("x"), &[1u8; 16]).is_err());
     }
 }

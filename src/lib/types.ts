@@ -562,6 +562,10 @@ export interface UiPrefs {
   shortcuts: Record<string, string[]>;
   sidebarHidden: string[] | null;
   lastComposeAccount: string | null;
+  /** Phone: views pinned to the bottom bar, in order (null = defaults). */
+  mobilePins: string[] | null;
+  /** Phone: list swipe gesture → action (null = defaults). */
+  swipe: Record<string, string> | null;
 }
 
 export type CloudEvent =

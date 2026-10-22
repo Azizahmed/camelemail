@@ -141,6 +141,10 @@ pub struct UiPrefs {
     /// Hidden sidebar entries (`SPAM`, `folder:<account>:<label>`); None = never chosen.
     pub sidebar_hidden: Option<Vec<String>>,
     pub last_compose_account: Option<String>,
+    /// Phone: the views pinned to the bottom bar, in order; None = the defaults.
+    pub mobile_pins: Option<Vec<String>>,
+    /// Phone: list swipe gesture → action (`shortRight`, `longRight`, `shortLeft`, `longLeft`).
+    pub swipe: Option<BTreeMap<String, String>>,
 }
 
 /// A partial `UiPrefs`: a missing key keeps its value, `null` clears it.
@@ -152,6 +156,10 @@ pub struct UiPrefsPatch {
     pub sidebar_hidden: Option<Option<Vec<String>>>,
     #[serde(deserialize_with = "present")]
     pub last_compose_account: Option<Option<String>>,
+    #[serde(deserialize_with = "present")]
+    pub mobile_pins: Option<Option<Vec<String>>>,
+    #[serde(deserialize_with = "present")]
+    pub swipe: Option<Option<BTreeMap<String, String>>>,
 }
 
 /// `Some(value)` for a key that is present, even when it's `null`.
@@ -631,11 +639,21 @@ impl Engine {
         if let Some(a) = patch.last_compose_account {
             p.last_compose_account = a;
         }
+        if let Some(x) = patch.mobile_pins {
+            p.mobile_pins = x;
+        }
+        if let Some(x) = patch.swipe {
+            p.swipe = x;
+        }
         self.inner.store.set_setting(UI_PREFS, &p)?;
         if p.shortcuts != before.shortcuts {
             self.mark_dirty(sections::SHORTCUTS);
         }
-        if p.sidebar_hidden != before.sidebar_hidden || p.last_compose_account != before.last_compose_account {
+        if p.sidebar_hidden != before.sidebar_hidden
+            || p.last_compose_account != before.last_compose_account
+            || p.mobile_pins != before.mobile_pins
+            || p.swipe != before.swipe
+        {
             self.mark_dirty(sections::PREFS);
         }
         // Hidden folders travel with their accounts (`hiddenFolders`).

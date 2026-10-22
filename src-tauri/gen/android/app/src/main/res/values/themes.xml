@@ -1,0 +1,7 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base application theme. The window background shows behind the system
+         bars until the app colours them (RemailPlugin.setSystemBars). -->
+    <style name="Theme.remail" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/remail_background</item>
+    </style>
+</resources>

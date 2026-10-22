@@ -2,6 +2,7 @@
 
 import { Channel, invoke, type InvokeArgs } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { isMobile, pickFilesInPage } from "./platform";
 import type {
   Account,
   AiOutput,
@@ -143,7 +144,9 @@ export const api = {
   openCompose: (draftId: string) => invoke<void>("open_compose", { draftId }),
   openSettings: (section: string | null = null) => invoke<void>("open_settings", { section }),
   openUrl: (url: string) => invoke<void>("open_url", { url }),
-  pickAttachments: (images = false) => invoke<OutgoingAttachment[]>("pick_attachments", { images }),
+  /** The phone's picker hands over content URIs Rust can't read: read the files in the page there. */
+  pickAttachments: (images = false) =>
+    isMobile ? pickFilesInPage(images) : invoke<OutgoingAttachment[]>("pick_attachments", { images }),
   readAttachments: (paths: string[]) => invoke<OutgoingAttachment[]>("read_attachments", { paths }),
 
   smartCounts: (accountId: string | null) => invoke<SmartCounts>("smart_counts", { accountId }),

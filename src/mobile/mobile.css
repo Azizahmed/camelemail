@@ -1,0 +1,404 @@
+/* Phone shell (src/mobile). Light is the default; html[data-theme="dark"] switches.
+   Only phone screens use the --m-* tokens; the shared components they host keep
+   the app's own tokens. */
+:root {
+  --m-bg: #f7f7f8;
+  --m-surface: #ffffff;
+  --m-surface-2: #eff0f3;
+  --m-pill: #ececee;
+  --m-separator: #e8e8ea;
+  --m-text: #1c1c1e;
+  --m-text-read: #5d5e61;
+  --m-text-2: #737478;
+  --m-text-3: #8e8f93;
+  --m-icon: #2a2a2c;
+  --m-accent: #3a78e3;
+  --m-accent-soft: #e2ebfc;
+  --m-badge: #7ba6f6;
+  --m-unread-dot: #2f6be0;
+  --m-fab: #2c3d66;
+  --m-scrim: rgba(0, 0, 0, 0.22);
+  --m-shadow: 0 5px 18px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --m-swipe-star: #dca63e;
+  --m-swipe-delete: #e95656;
+  --m-swipe-archive: #4c7c45;
+  --m-swipe-read: #3a78e3;
+  --m-swipe-snooze: #8467c9;
+  --m-avatar: #b22b5c;
+  --m-pad: 20px;
+}
+
+html[data-theme="dark"] {
+  --m-bg: #141516;
+  --m-surface: #1e1f21;
+  --m-surface-2: #232427;
+  --m-pill: #2c2d30;
+  --m-separator: #242528;
+  --m-text: #ededef;
+  --m-text-read: #a6a7ab;
+  --m-text-2: #8f9094;
+  --m-text-3: #74757a;
+  --m-icon: #e4e4e6;
+  --m-accent: #7aa7f7;
+  --m-accent-soft: #233150;
+  --m-badge: #4f7fd6;
+  --m-unread-dot: #6d9cf5;
+  --m-fab: #4a64a3;
+  --m-scrim: rgba(0, 0, 0, 0.5);
+  --m-shadow: 0 5px 18px rgba(0, 0, 0, 0.45);
+}
+
+html.mobile,
+html.mobile body {
+  background: var(--m-bg);
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* A full-screen layer (thread, compose, settings…). */
+.m-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--m-bg);
+  color: var(--m-text);
+  animation: m-slide 0.18s ease-out;
+}
+
+@keyframes m-slide {
+  from {
+    transform: translateX(20px);
+    opacity: 0.6;
+  }
+}
+
+.m-topbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 52px;
+  padding: 0 8px;
+  background: var(--m-bg);
+}
+
+.m-topbar h1 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  margin-inline-start: 7px;
+  font-size: 18px;
+  font-weight: 450;
+  /* Room for Arabic descenders under the ellipsis clip. */
+  line-height: 1.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.m-icon-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 39px;
+  height: 39px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--m-icon);
+  padding: 0;
+}
+
+.m-icon-btn:active {
+  background: var(--m-pill);
+}
+
+.m-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Grouped rows (settings). */
+.m-section-title {
+  margin: 23px var(--m-pad) 8px;
+  font-size: 12px;
+  color: var(--m-text-2);
+}
+
+.m-card {
+  margin: 0 15px 3px;
+  border-radius: 16px;
+  background: var(--m-surface-2);
+}
+
+.m-row {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  width: 100%;
+  min-height: 59px;
+  padding: 10px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--m-text);
+  text-align: start;
+  font: inherit;
+  font-size: 15px;
+}
+
+.m-row .m-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.m-row small {
+  font-size: 12px;
+  color: var(--m-text-2);
+}
+
+.m-row:active {
+  background: var(--m-pill);
+  border-radius: inherit;
+}
+
+.m-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 39px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--m-accent);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.m-primary.soft {
+  background: var(--m-accent-soft);
+  color: var(--m-accent);
+}
+
+/* Bottom sheets. */
+.m-scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--m-scrim);
+  animation: m-fade 0.15s ease;
+}
+
+@keyframes m-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.m-sheet {
+  position: fixed;
+  left: 7px;
+  right: 7px;
+  bottom: 7px;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 8px 0 10px;
+  border-radius: 23px;
+  background: var(--m-surface);
+  color: var(--m-text);
+  box-shadow: var(--m-shadow);
+  animation: m-rise 0.18s ease-out;
+}
+
+@keyframes m-rise {
+  from {
+    transform: translateY(25px);
+    opacity: 0;
+  }
+}
+
+.m-sheet-title {
+  margin: 5px 20px 7px;
+  font-size: 11px;
+  color: var(--m-text-2);
+}
+
+.m-sheet-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: calc(100% - 13px);
+  min-height: 44px;
+  margin: 0 7px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 22px;
+  background: transparent;
+  color: var(--m-text);
+  font: inherit;
+  font-size: 15px;
+  text-align: start;
+}
+
+.m-sheet-item.on,
+.m-sheet-item:active {
+  background: var(--m-pill);
+}
+
+.m-sheet-item small {
+  margin-inline-start: auto;
+  color: var(--m-text-2);
+  font-size: 11px;
+}
+
+.m-sheet-sep {
+  height: 1px;
+  margin: 7px 25px;
+  background: var(--m-separator);
+}
+
+.m-empty {
+  padding: 66px 26px;
+  text-align: center;
+  color: var(--m-text-2);
+  font-size: 13px;
+}
+
+/* Shared toasts sit above the floating bar, sized for touch. */
+html.mobile .toast,
+html.mobile .send-pill {
+  bottom: 79px;
+  max-width: calc(100vw - 26px);
+}
+/* A toast spans the screen, so its text doesn't wrap into a narrow column. */
+html.mobile .toast {
+  left: 13px;
+  right: 13px;
+  transform: none;
+  font-size: 13px;
+  border-radius: 13px;
+}
+html.mobile .toast {
+  padding: 10px 11px 10px 16px;
+}
+html.mobile .toast .action {
+  padding: 8px 13px;
+  font-size: 12px;
+  border-radius: 10px;
+}
+
+/* The shared Toggle (components/Toggle.svelte), finger-sized, and moving
+   towards the line's end in right-to-left text as Android's switches do. */
+html.mobile .toggle {
+  width: 39px;
+  height: 23px;
+  background: color-mix(in srgb, var(--m-text-3) 45%, transparent);
+}
+
+html.mobile .toggle.on {
+  background: var(--m-accent);
+}
+
+html.mobile .toggle .knob {
+  top: 2px;
+  left: auto;
+  right: auto;
+  inset-inline-start: 2px;
+  width: 18px;
+  height: 18px;
+  transform: none;
+  transition: inset-inline-start var(--normal);
+}
+
+/* Logical, so it follows the toggle's own direction (English sections stay
+   left to right inside the Arabic app). */
+html.mobile .toggle.on .knob {
+  inset-inline-start: calc(100% - 20px);
+  transform: none;
+}
+
+/* Phones scroll by touch: no scrollbar tracks (the app's desktop scrollbars would show). */
+html.mobile ::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* The composer's Send in the phone's colours. */
+html.mobile .composer .send {
+  background: var(--m-accent);
+  border-color: var(--m-accent);
+}
+
+/* Shared components (composer, settings, menus) take the phone's accent. */
+html.mobile {
+  --accent: var(--m-accent);
+  --accent-hover: var(--m-accent);
+  --accent-soft: var(--m-accent-soft);
+}
+
+/* Composer on a phone: "From" gets its own line, the tools wrap below it with
+   Send at the end, and the buttons are finger-sized. */
+html.mobile .composer .toprow {
+  flex-wrap: wrap;
+  row-gap: 5px;
+}
+html.mobile .composer .from {
+  flex-basis: 100%;
+}
+html.mobile .composer .tools {
+  flex: 1;
+  flex-wrap: wrap;
+  row-gap: 5px;
+}
+html.mobile .composer .tools .icon-btn {
+  width: 33px;
+  height: 33px;
+}
+html.mobile .composer .tools .send {
+  margin-inline-start: auto;
+  height: 33px;
+  padding: 0 15px;
+  border-radius: 16px;
+  font-size: 12px;
+}
+
+/* Desktop menus and drop-down lists, opened on a phone: finger-sized rows. */
+/* The desktop's 200px minimum would push a menu past where it was placed. */
+html.mobile .menu {
+  min-width: 0;
+  max-width: calc(100vw - 16px);
+}
+html.mobile .menu .menu-item {
+  min-height: 36px;
+  font-size: 13px;
+}
+
+/* Back arrows point the way back in right-to-left layouts. */
+html[dir="rtl"].mobile .m-icon-btn .lucide-arrow-left {
+  transform: scaleX(-1);
+}
+
+/* Phones draw Arabic with the system fonts. The app's "Remail Arabic" face
+   turns mark positioning off for a WebKitGTK bug (see src/app.css) that
+   Android's WebView doesn't have, and there it misplaces dots and hamzas. */
+html.mobile {
+  --font-family: system-ui, "Roboto", "Noto Sans Arabic", sans-serif;
+  --font-mono: ui-monospace, "Roboto Mono", "Droid Sans Mono", monospace;
+}
+
+/* Message headers on a phone: the sender's name gets the room. The address
+   is in the "to" details, and the thread's top bar has the star. */
+html.mobile .message .line1 .email,
+html.mobile .message .tools .icon-btn:first-child {
+  display: none;
+}

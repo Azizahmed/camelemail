@@ -1,8 +1,12 @@
-//! Desktop shell: hosts the Remail engine, exposes it to the UI as Tauri
-//! commands, forwards engine events, and owns windows, tray and OS
-//! notifications.
+//! App shell (desktop and mobile): hosts the Remail engine, exposes it to
+//! the UI as Tauri commands, forwards engine events, and owns windows, tray
+//! and OS notifications. Phones have one window: compose and settings are
+//! screens inside it (`mobile-open-compose` / `mobile-open-settings` events),
+//! and there is no tray, single-instance lock or MCP.
 
 mod commands;
+#[cfg(mobile)]
+mod mobile;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,11 +15,16 @@ use std::time::Duration;
 
 use remail_core::cloud::{Cloud, CloudEvent, CloudOptions, CloudSink, Phase};
 use remail_core::engine::AppSettings;
+#[cfg(desktop)]
 use remail_core::secrets::KeyringStore;
 use remail_core::{Engine, EngineEvent, EventSink};
+#[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem};
+#[cfg(desktop)]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+#[cfg(desktop)]
+use tauri::WebviewUrl;
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_notification::NotificationExt;
 
 pub struct AppState {
@@ -64,7 +73,12 @@ impl UiSink {
     }
 
     fn notify(&self, title: &str, body: &str) {
-        let _ = self.app.notification().builder().title(title).body(body).show();
+        let builder = self.app.notification().builder().title(title).body(body);
+        // Android: Remail's status-bar icon (res/drawable/ic_stat_remail), and
+        // the expanded text shown when a notification is opened up.
+        #[cfg(mobile)]
+        let builder = builder.icon("ic_stat_remail").icon_color("#2C3D66").large_body(body);
+        let _ = builder.show();
     }
 }
 
@@ -126,7 +140,7 @@ impl CloudSink for CloudUi {
             let changed = self.phase.lock().unwrap().replace(status.phase) != Some(status.phase);
             if changed {
                 self.tray.request();
-                if status.phase == Phase::Ready {
+                if cfg!(desktop) && status.phase == Phase::Ready {
                     // Agents may reach mail now (if the user turned the MCP server on).
                     if let Some(state) = self.app.try_state::<AppState>() {
                         let engine = state.engine.clone();
@@ -148,6 +162,7 @@ fn chrono_now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
+#[cfg(desktop)]
 /// Keeps the tray tooltip's unread count current: at most one count per
 /// ~500 ms, on the blocking pool, and only touches the tray when the text changes.
 async fn tray_updater(app: AppHandle, engine: Engine, refresh: Arc<TrayRefresh>) {
@@ -223,6 +238,7 @@ fn links_open_outside(app: AppHandle) -> impl Fn(tauri::Url, tauri::webview::New
     }
 }
 
+#[cfg(desktop)]
 pub fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
@@ -231,7 +247,23 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
+#[cfg(mobile)]
+pub fn show_main(_app: &AppHandle) {}
+
+/// The phone's compose screen for a saved draft.
+#[cfg(mobile)]
+pub fn open_compose_window(app: &AppHandle, draft_id: &str) -> tauri::Result<()> {
+    app.emit_to("main", "mobile-open-compose", draft_id)
+}
+
+/// The phone's settings screen.
+#[cfg(mobile)]
+pub fn open_settings_window(app: &AppHandle, section: Option<&str>) -> tauri::Result<()> {
+    app.emit_to("main", "mobile-open-settings", section)
+}
+
 /// Open (or focus) the compose window for a saved draft.
+#[cfg(desktop)]
 pub fn open_compose_window(app: &AppHandle, draft_id: &str) -> tauri::Result<()> {
     let state = app.state::<AppState>();
     // Check and reserve under one lock so two requests can't both build a
@@ -280,6 +312,7 @@ pub fn show_calendar(app: &AppHandle) {
     let _ = app.emit_to("main", "show-calendar", ());
 }
 
+#[cfg(desktop)]
 pub fn open_settings_window(app: &AppHandle, section: Option<&str>) -> tauri::Result<()> {
     if let Some(w) = app.get_webview_window("settings") {
         if let Some(s) = section {
@@ -329,6 +362,7 @@ fn handle_args(app: &AppHandle, args: &[String]) {
     }
 }
 
+#[cfg(desktop)]
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Remail", true, None::<&str>)?;
     let compose = MenuItem::with_id(app, "compose", "Compose New Email", true, None::<&str>)?;
@@ -369,6 +403,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -377,14 +412,17 @@ pub fn run() {
         .init();
 
     let quitting = Arc::new(AtomicBool::new(false));
-    let app = tauri::Builder::default()
-        .manage(EarlyArgs(Mutex::new(Some(Vec::new()))))
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if !args.iter().any(|a| a == "--background") {
-                show_main(app);
-            }
-            handle_args(app, &args);
-        }))
+    let builder = tauri::Builder::default().manage(EarlyArgs(Mutex::new(Some(Vec::new()))));
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        if !args.iter().any(|a| a == "--background") {
+            show_main(app);
+        }
+        handle_args(app, &args);
+    }));
+    #[cfg(mobile)]
+    let builder = builder.plugin(mobile::init());
+    let app = builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -402,9 +440,17 @@ pub fn run() {
                 None => app.path().app_data_dir()?,
             };
             std::fs::create_dir_all(&data_dir)?;
+            #[cfg(desktop)]
             let secrets: Arc<dyn remail_core::secrets::SecretStore> = match custom_dir {
                 Some(_) => Arc::new(remail_core::secrets::FileStore::new(data_dir.join("credentials.json"))),
                 None => Arc::new(KeyringStore::new(data_dir.join("credentials.json"))),
+            };
+            // Phones: a private file sealed with a key from the Keystore/Keychain.
+            #[cfg(mobile)]
+            let secrets: Arc<dyn remail_core::secrets::SecretStore> = {
+                let _ = custom_dir;
+                let key = mobile::credentials_key(&handle)?;
+                Arc::new(remail_core::secrets::FileStore::sealed(data_dir.join("credentials.sealed"), &key)?)
             };
             let tray_refresh = Arc::new(TrayRefresh::default());
             let sink = Arc::new(UiSink { app: handle.clone(), tray: tray_refresh.clone() });
@@ -419,14 +465,17 @@ pub fn run() {
                 anyhow::Ok((engine, cloud))
             })?;
             app.manage(AppState { engine, cloud, compose_windows: Mutex::new(HashMap::new()), next_window: Mutex::new(0) });
+            #[cfg(desktop)]
             if let Err(e) = build_tray(&handle) {
                 tracing::warn!("system tray unavailable: {e}");
             }
             let engine = app.state::<AppState>().engine.clone();
+            #[cfg(desktop)]
             tauri::async_runtime::spawn(tray_updater(handle.clone(), engine.clone(), tray_refresh.clone()));
             tray_refresh.request();
             let args: Vec<String> = std::env::args().collect();
             // `--background` (started by `remail --mcp` for an agent): stay in the tray.
+            #[cfg(desktop)]
             if !args.iter().any(|a| a == "--background") || handle.tray_by_id("main").is_none() {
                 show_main(&handle);
             }
@@ -435,9 +484,12 @@ pub fn run() {
             for url in early {
                 handle_args(&handle, &[url]);
             }
+            #[cfg(desktop)]
             if mail_ready(&handle) {
                 tauri::async_runtime::spawn(async move { engine.apply_mcp_server().await });
             }
+            #[cfg(mobile)]
+            let _ = engine;
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -449,6 +501,7 @@ pub fn run() {
                     }
                 }
             }
+            #[cfg(desktop)]
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
                     let close_to_tray = window
@@ -481,6 +534,7 @@ pub fn run() {
     });
 }
 
+#[cfg(desktop)]
 /// `remail --mcp`: a stdio MCP server for agents that can't use HTTP. It
 /// forwards to the running app's MCP endpoint, starting Remail in the
 /// background first if needed.
@@ -513,12 +567,14 @@ pub fn run_mcp_bridge() {
     });
 }
 
+#[cfg(desktop)]
 /// A running Remail answers at the endpoint it wrote (a crash leaves the file behind).
 async fn endpoint_alive(data_dir: &std::path::Path) -> bool {
     let Ok(client) = reqwest_lite_client() else { return false };
     remail_core::mcp::bridge::discover_endpoint(&client, data_dir).await.is_some()
 }
 
+#[cfg(desktop)]
 fn reqwest_lite_client() -> reqwest::Result<reqwest::Client> {
     reqwest::Client::builder().timeout(Duration::from_secs(2)).build()
 }
@@ -537,6 +593,7 @@ pub fn launcher_path() -> std::path::PathBuf {
     exe
 }
 
+#[cfg(desktop)]
 fn launch_background() {
     let _ = std::process::Command::new(launcher_path())
         .arg("--background")

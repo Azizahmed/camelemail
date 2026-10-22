@@ -9,6 +9,9 @@
   import { toast, toastError } from "../lib/ui.svelte";
   import Avatar from "./Avatar.svelte";
 
+  /** Where the back arrow goes (the phone closes its screen); the Inbox by default. */
+  let { onback }: { onback?: () => void } = $props();
+
   let senders: NewsletterSender[] = $state([]);
   let loading = $state(true);
   let busy = $state<Record<string, boolean>>({});
@@ -67,7 +70,7 @@
 
 <div class="page">
   <div class="head">
-    <button class="icon-btn" title="Back" onclick={() => navigate(mail.view.accountId, L.INBOX)}><ArrowLeft size={16} /></button>
+    <button class="icon-btn" title="Back" onclick={() => (onback ? onback() : navigate(mail.view.accountId, L.INBOX))}><ArrowLeft size={16} /></button>
     <div>
       <h1>Manage Subscriptions</h1>
       <p>Newsletters and mailing lists that write to you. Leave the ones you no longer read.</p>

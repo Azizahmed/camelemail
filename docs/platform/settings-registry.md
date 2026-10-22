@@ -119,6 +119,8 @@ Access tokens (`oauth_tokens`, in memory) stay in memory.
 |---|---|---|---|
 | `shortcuts` | `Record<actionId, string[]>` | user | Section `shortcuts` (field per action) |
 | `sidebarHidden` | `string[]` (`SPAM`, `folder:<acc>:<label>`) | user | `prefs.sidebarHidden` (set). Folder entries go to `accounts[].hiddenFolders`. |
+| `mobilePins` | `string[]` (`INBOX`, `UNREAD`, `STARRED`, `SNOOZED`, …, in order) | user | `prefs.mobilePins` (field, LWW). The phone's bottom-bar views. |
+| `swipe` | `{shortRight, longRight, shortLeft, longLeft}` → `star`, `trash`, `archive`, `read`, `snooze`, `none` | user | `prefs.swipe` (field, LWW). The phone's list swipe actions. |
 | `lastComposeAccount` | `acc_…` | user | `prefs.lastComposeAccount` |
 | `sidebarMore` | `"1"\|"0"` | device | Unchanged |
 | `sidebarDocked` | `"0"` = undocked | device | Unchanged |

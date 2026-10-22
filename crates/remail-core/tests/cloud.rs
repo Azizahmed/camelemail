@@ -209,6 +209,8 @@ async fn setup_moves_to_a_second_device() {
         shortcuts: Some(shortcuts),
         sidebar_hidden: Some(Some(vec!["SPAM".into(), format!("folder:{}:Receipts", work.id)])),
         last_compose_account: Some(Some(work.id.clone())),
+        mobile_pins: Some(Some(vec!["INBOX".into(), "STARRED".into(), "calendar".into()])),
+        swipe: Some(Some([("shortLeft".to_string(), "trash".to_string()), ("longRight".to_string(), "snooze".to_string())].into())),
     };
     e.set_ui_prefs(patch).unwrap();
     let sub = e

@@ -1,4 +1,8 @@
-// Date and size formatting for the message list and threads.
+// Date and size formatting for the message list and threads. Wording and
+// month/day names follow the app language (src/lib/i18n.svelte.ts); English
+// keeps using the system's own date style.
+
+import { i18n, intlLocale, t } from "./i18n.svelte";
 
 const DAY = 86_400_000;
 
@@ -13,7 +17,21 @@ function dayDiff(a: number, b: number): number {
 
 // Formatters are costly to build (WebKit especially) and lists format a date
 // per row, so each one is built once.
-const fmt = (options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(undefined, options);
+/** The locale for Intl: Arabic when the app is, else the system's. */
+export const dateLocale = (): string | undefined => (i18n.locale === "ar" ? intlLocale() : undefined);
+
+const fmt = (options: Intl.DateTimeFormatOptions) => {
+  const built = new Map<string, Intl.DateTimeFormat>();
+  return {
+    format(d: Date): string {
+      const locale = dateLocale();
+      const key = locale ?? "";
+      let f = built.get(key);
+      if (!f) built.set(key, (f = new Intl.DateTimeFormat(locale, options)));
+      return f.format(d);
+    },
+  };
+};
 const TIME = fmt({ hour: "numeric", minute: "2-digit" });
 const WEEKDAY_SHORT = fmt({ weekday: "short" });
 const WEEKDAY_LONG = fmt({ weekday: "long" });
@@ -33,12 +51,12 @@ export function listDate(ts: number, now = Date.now()): string {
   const today = startOfDay(n);
   if (ts >= today) {
     const mins = Math.floor((now - ts) / 60_000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins}m ago`;
-    return `${Math.floor(mins / 60)}h ago`;
+    if (mins < 1) return t("m.fmt.justNow");
+    if (mins < 60) return t("m.fmt.minAgo", { n: mins });
+    return t("m.fmt.hourAgo", { n: Math.floor(mins / 60) });
   }
   const days = dayDiff(now, ts);
-  if (days === 1) return "Yesterday";
+  if (days === 1) return t("m.fmt.yesterday");
   if (days < 7) return WEEKDAY_SHORT.format(d);
   return MONTH_DAY.format(d);
 }
@@ -47,11 +65,11 @@ export function listDate(ts: number, now = Date.now()): string {
 export function absoluteDate(ts: number, now = Date.now()): string {
   const d = new Date(ts);
   const days = dayDiff(now, ts);
-  if (days === 0) return `Today, ${time(d)}`;
-  if (days === 1) return `Yesterday, ${time(d)}`;
+  if (days === 0) return t("m.fmt.dayTime", { day: t("m.fmt.today"), time: time(d) });
+  if (days === 1) return t("m.fmt.dayTime", { day: t("m.fmt.yesterday"), time: time(d) });
   const sameYear = d.getFullYear() === new Date(now).getFullYear();
   const date = (sameYear ? MONTH_DAY : MONTH_DAY_YEAR).format(d);
-  return `${date}, ${time(d)}`;
+  return t("m.fmt.dayTime", { day: date, time: time(d) });
 }
 
 /** Message header: today → time, else "Dec 8, 3:42 PM". */
@@ -65,10 +83,11 @@ export function messageDate(ts: number, now = Date.now()): string {
 export function wakeDate(ts: number, now = Date.now()): string {
   const d = new Date(ts);
   const days = dayDiff(ts, now);
-  if (days === 0) return `Today, ${time(d)}`;
-  if (days === 1) return `Tomorrow, ${time(d)}`;
-  if (days > 1 && days < 7) return `${WEEKDAY_LONG.format(d)}, ${time(d)}`;
-  return `${MONTH_DAY.format(d)}, ${time(d)}`;
+  const at = (day: string) => t("m.fmt.dayTime", { day, time: time(d) });
+  if (days === 0) return at(t("m.fmt.today"));
+  if (days === 1) return at(t("m.fmt.tomorrow"));
+  if (days > 1 && days < 7) return at(WEEKDAY_LONG.format(d));
+  return at(MONTH_DAY.format(d));
 }
 
 /** Short preset detail: "Tue, Oct 20 · 8:00 AM". */
@@ -80,7 +99,7 @@ export function presetDetail(ts: number): string {
 /** Full: "Monday, December 8, 2025 at 3:42 PM". */
 export function fullDate(ts: number): string {
   const d = new Date(ts);
-  return `${FULL_DATE.format(d)} at ${time(d)}`;
+  return t("m.fmt.fullDate", { date: FULL_DATE.format(d), time: time(d) });
 }
 
 export function fileSize(bytes: number): string {

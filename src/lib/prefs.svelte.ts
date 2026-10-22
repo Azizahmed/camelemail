@@ -15,6 +15,8 @@ export const uiPrefs = $state<UiPrefs & { loaded: boolean }>({
   shortcuts: {},
   sidebarHidden: null,
   lastComposeAccount: null,
+  mobilePins: null,
+  swipe: null,
   loaded: false,
 });
 
@@ -36,6 +38,11 @@ export function normalizePrefs(p: Partial<UiPrefs> | null | undefined): UiPrefs 
     shortcuts,
     sidebarHidden: Array.isArray(p?.sidebarHidden) ? p.sidebarHidden.filter((x) => typeof x === "string") : null,
     lastComposeAccount: typeof p?.lastComposeAccount === "string" && p.lastComposeAccount ? p.lastComposeAccount : null,
+    mobilePins: Array.isArray(p?.mobilePins) ? p.mobilePins.filter((x) => typeof x === "string") : null,
+    swipe:
+      p?.swipe && typeof p.swipe === "object" && !Array.isArray(p.swipe)
+        ? Object.fromEntries(Object.entries(p.swipe).filter(([, v]) => typeof v === "string"))
+        : null,
   };
 }
 
@@ -89,6 +96,8 @@ function apply(p: UiPrefs) {
   uiPrefs.shortcuts = p.shortcuts;
   uiPrefs.sidebarHidden = p.sidebarHidden;
   uiPrefs.lastComposeAccount = p.lastComposeAccount;
+  uiPrefs.mobilePins = p.mobilePins;
+  uiPrefs.swipe = p.swipe;
   uiPrefs.loaded = true;
   for (const fn of listeners) fn(p);
 }
@@ -115,6 +124,8 @@ export function saveUiPrefs(patch: Partial<UiPrefs>): Promise<void> {
   if (patch.shortcuts !== undefined) uiPrefs.shortcuts = patch.shortcuts;
   if (patch.sidebarHidden !== undefined) uiPrefs.sidebarHidden = patch.sidebarHidden;
   if (patch.lastComposeAccount !== undefined) uiPrefs.lastComposeAccount = patch.lastComposeAccount;
+  if (patch.mobilePins !== undefined) uiPrefs.mobilePins = patch.mobilePins;
+  if (patch.swipe !== undefined) uiPrefs.swipe = patch.swipe;
   return api.setUiPrefs(patch).catch((e) => {
     console.warn("Couldn't save UI prefs", e);
   });

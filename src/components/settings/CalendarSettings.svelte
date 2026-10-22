@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isMobile } from "../../lib/platform";
   import Select from "../Select.svelte";
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
@@ -197,7 +198,7 @@
 </script>
 
 <h1>Calendar</h1>
-<p class="intro">Outlook, Hotmail, Live, MSN and Microsoft 365 accounts bring all their calendars by themselves once you sign in with Microsoft. Remail syncs other calendars over CalDAV (iCloud, Fastmail, Nextcloud, Zoho, Yahoo, GMX, mailbox.org and others), using the same app password as your mail. You can also subscribe to any calendar with its iCal link (Google Calendar, holidays, sports, school…); those are read-only. The calendar is next to your mail: use the switch at the top left, or press <kbd>G</kbd> then <kbd>C</kbd>.</p>
+<p class="intro">Outlook, Hotmail, Live, MSN and Microsoft 365 accounts bring all their calendars by themselves once you sign in with Microsoft. Remail syncs other calendars over CalDAV (iCloud, Fastmail, Nextcloud, Zoho, Yahoo, GMX, mailbox.org and others), using the same app password as your mail. You can also subscribe to any calendar with its iCal link (Google Calendar, holidays, sports, school…); those are read-only.{#if !isMobile} The calendar is next to your mail: use the switch at the top left, or press <kbd>G</kbd> then <kbd>C</kbd>.{/if}</p>
 
 <div class="group-title">Connected calendars</div>
 <div class="list">

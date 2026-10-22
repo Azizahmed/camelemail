@@ -15,6 +15,9 @@
     onopen,
     oncreate,
     onpick,
+    hourHeight = 44,
+    scrollHour = 7.5,
+    tapToCreate = false,
   }: {
     days: Date[];
     /** The loaded events per dayKey. */
@@ -24,14 +27,21 @@
     onopen: (e: CalEvent, rect: DOMRect) => void;
     oncreate: (start: Date, allDay: boolean) => void;
     onpick: (d: Date) => void;
+    /** Pixels per hour. */
+    hourHeight?: number;
+    /** The hour scrolled to on open. */
+    scrollHour?: number;
+    /** Create with a single tap (touch) instead of a double click. */
+    tapToCreate?: boolean;
   } = $props();
 
-  const HOUR = 44;
+  // svelte-ignore state_referenced_locally
+  const HOUR = hourHeight;
   let scroller: HTMLDivElement | undefined = $state();
   let now = $state(Date.now());
 
   onMount(() => {
-    scroller?.scrollTo({ top: HOUR * 7.5 });
+    scroller?.scrollTo({ top: HOUR * scrollHour });
     const t = setInterval(() => (now = Date.now()), 60_000);
     return () => clearInterval(t);
   });
@@ -99,6 +109,12 @@
     oncreate(s, false);
   }
 
+  function allDayCreate(ev: MouseEvent) {
+    const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+    const i = Math.floor(((ev.clientX - r.left) / r.width) * days.length);
+    oncreate(startOfDay(days[Math.max(0, Math.min(days.length - 1, i))]), true);
+  }
+
   const hours = Array.from({ length: 24 }, (_, h) => h);
   const hourLabel = (h: number) => new Date(2000, 0, 1, h).toLocaleTimeString(undefined, { hour: "numeric" });
 </script>
@@ -118,11 +134,7 @@
   <div class="allday" style:height="{Math.max(1, bars.lanes) * 20 + 6}px">
     <span class="gutter lbl">all-day</span>
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <div class="ad-days" ondblclick={(ev) => {
-      const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
-      const i = Math.floor(((ev.clientX - r.left) / r.width) * days.length);
-      oncreate(startOfDay(days[Math.max(0, Math.min(days.length - 1, i))]), true);
-    }}>
+    <div class="ad-days" onclick={(ev) => tapToCreate && allDayCreate(ev)} ondblclick={(ev) => !tapToCreate && allDayCreate(ev)}>
       {#each bars.bars as b (b.e.key)}
         <button
           class="bar"
@@ -131,7 +143,7 @@
           style:top="{3 + b.lane * 20}px"
           style:--c={b.e.color}
           dir="auto"
-          onclick={(ev) => onopen(b.e, ev.currentTarget.getBoundingClientRect())}
+          onclick={(ev) => { if (tapToCreate) ev.stopPropagation(); onopen(b.e, ev.currentTarget.getBoundingClientRect()); }}
         >{b.e.summary || "(No title)"}</button>
       {/each}
     </div>
@@ -143,7 +155,7 @@
       </div>
       {#each days as d (d.getTime())}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-        <div class="col" class:today={sameDay(d, new Date(now))} ondblclick={(ev) => slotClick(ev, d)}>
+        <div class="col" class:today={sameDay(d, new Date(now))} onclick={(ev) => tapToCreate && slotClick(ev, d)} ondblclick={(ev) => !tapToCreate && slotClick(ev, d)}>
           {#each hours as h (h)}<div class="line" style:top="{h * HOUR}px"></div>{/each}
           {#each placed(d) as p (p.e.key)}
             <button

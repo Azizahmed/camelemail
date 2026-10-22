@@ -1,0 +1,229 @@
+/* Phone settings pages (SettingsPage.svelte and ./*Page.svelte). */
+
+.ms-intro {
+  margin: 3px var(--m-pad) 7px;
+  color: var(--m-text-2);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.ms-note {
+  margin: 16px 15px 0;
+  padding: 13px 15px;
+  border-radius: 16px;
+  background: var(--m-surface-2);
+  color: var(--m-text-2);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.ms-row-title {
+  font-size: 15px;
+}
+
+.ms-end {
+  height: 33px;
+}
+
+/* ---------------------------------------------------------------------------
+   The desktop's settings sections on a phone page. They are drawn for a
+   508px window and a mouse; here they get the page's width, colours and
+   finger-sized controls. `html.mobile` outweighs the sections' own scoped
+   rules.
+   ------------------------------------------------------------------------- */
+
+.m-settings-embed {
+  --surface: var(--m-bg);
+  --surface-elevated: var(--m-surface-2);
+  --content: var(--m-text);
+  --content-subtle: var(--m-text-2);
+  --content-muted: var(--m-text-3);
+  --accent: var(--m-accent);
+  --accent-soft: var(--m-accent-soft);
+  --radius-xl: 16px;
+  --radius-lg: 10px;
+  padding: 0 16px 39px;
+  color: var(--m-text);
+  font-size: 12px;
+}
+
+/* The top bar already names the section. */
+html.mobile .m-settings-embed h1 {
+  display: none;
+}
+
+html.mobile .m-settings-embed .group-title {
+  margin: 23px 0 3px;
+  font-size: 11px;
+}
+
+html.mobile .m-settings-embed .intro {
+  margin: 3px 0 11px;
+}
+
+html.mobile .m-settings-embed .intro,
+html.mobile .m-settings-embed .note,
+html.mobile .m-settings-embed .hint {
+  font-size: 12px;
+  line-height: 17px;
+}
+
+html.mobile .m-settings-embed .note {
+  padding: 11px 13px;
+  border-radius: 13px;
+}
+
+/* Rows: the control moves under the text when they don't fit side by side. */
+html.mobile .m-settings-embed .row {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 13px;
+  padding: 11px 0;
+}
+
+html.mobile .m-settings-embed .row > :first-child {
+  flex: 1 1 148px;
+  min-width: 0;
+}
+
+html.mobile .m-settings-embed .row > :last-child {
+  max-width: 100%;
+}
+
+html.mobile .m-settings-embed .row-control:has(.narrow) {
+  flex: 1 1 100%;
+}
+
+html.mobile .m-settings-embed .narrow {
+  width: 100%;
+}
+
+html.mobile .m-settings-embed .row-label {
+  font-size: 13px;
+}
+
+html.mobile .m-settings-embed .row-desc {
+  font-size: 11px;
+  line-height: 16px;
+}
+
+html.mobile .m-settings-embed .path {
+  text-align: start;
+}
+
+/* Controls. */
+html.mobile .m-settings-embed .btn {
+  height: 34px;
+  padding: 0 15px;
+  border-radius: 17px;
+  font-size: 12px;
+}
+
+html.mobile .m-settings-embed .input {
+  height: 38px;
+  padding: 0 11px;
+  font-size: 13px;
+}
+
+html.mobile .m-settings-embed textarea.input {
+  height: auto;
+  min-height: 90px;
+  padding: 8px 11px;
+}
+
+/* Selects size to their longest-so-far label rather than a desktop width. */
+html.mobile .m-settings-embed .select {
+  width: auto !important;
+  min-width: 123px;
+  max-width: 100%;
+  height: 34px;
+  font-size: 12px;
+}
+
+html.mobile .m-settings-embed .field .select {
+  width: 100% !important;
+}
+
+html.mobile .m-settings-embed .time {
+  width: 105px;
+}
+
+html.mobile .m-settings-embed .icon-btn {
+  width: 33px;
+  height: 33px;
+}
+
+html.mobile .m-settings-embed .seg button {
+  padding: 7px 11px;
+  font-size: 11px;
+}
+
+html.mobile .m-settings-embed .check {
+  min-height: 33px;
+  font-size: 12px;
+}
+
+html.mobile .m-settings-embed .check input {
+  width: 16px;
+  height: 16px;
+}
+
+/* Lists and cards. */
+html.mobile .m-settings-embed .list,
+html.mobile .m-settings-embed .card {
+  border: 0;
+}
+
+html.mobile .m-settings-embed .acct-head,
+html.mobile .m-settings-embed .item {
+  min-height: 52px;
+  padding: 10px 13px;
+}
+
+html.mobile .m-settings-embed .acct-name,
+html.mobile .m-settings-embed .name {
+  font-size: 13px;
+}
+
+html.mobile .m-settings-embed .acct-email,
+html.mobile .m-settings-embed .sub {
+  font-size: 11px;
+}
+
+html.mobile .m-settings-embed .acct-head {
+  flex-wrap: wrap;
+}
+
+html.mobile .m-settings-embed .acct-actions,
+html.mobile .m-settings-embed .form-actions,
+html.mobile .m-settings-embed .actions,
+html.mobile .m-settings-embed .adds,
+html.mobile .m-settings-embed .au-actions,
+html.mobile .m-settings-embed .inline {
+  flex-wrap: wrap;
+}
+
+html.mobile .m-settings-embed .swatches {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+html.mobile .m-settings-embed .swatch {
+  width: 25px;
+  height: 25px;
+}
+
+/* Account setup: the server's host on its own line above port and security. */
+html.mobile .m-settings-embed .srv-row {
+  flex-wrap: wrap;
+}
+
+html.mobile .m-settings-embed .srv-row > .grow {
+  flex: 1 1 100%;
+}
+
+html.mobile .m-settings-embed .preset {
+  padding: 7px 11px;
+  font-size: 11px;
+}

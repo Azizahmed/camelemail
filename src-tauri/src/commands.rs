@@ -2,6 +2,7 @@
 //! returned to the UI as user-readable strings.
 
 use std::collections::HashMap;
+#[cfg(desktop)]
 use std::path::PathBuf;
 
 use base64::Engine as _;
@@ -10,7 +11,7 @@ use std::sync::Arc;
 use remail_core::ai::AiSettings;
 use remail_core::assistant::ChatEvent;
 use remail_core::engine::{
-    friendly_error, AiOutput, AiTask, AppSettings, AttachmentData, McpSettings, McpStatus, ThreadAction, ThreadRef, UnsubscribeResult,
+    friendly_error, AiOutput, AiTask, AppSettings, McpSettings, McpStatus, ThreadAction, ThreadRef, UnsubscribeResult,
 };
 use remail_core::mcp::client::McpTransport;
 use remail_core::mcp::import::ImportedServer;
@@ -50,6 +51,9 @@ macro_rules! handlers {
 
 handlers![
     app_info,
+    set_system_bars,
+    dismiss_text_menu,
+    notification_permission,
     get_settings,
     set_settings,
     provider_presets,
@@ -341,9 +345,10 @@ fn safe_filename(name: &str) -> String {
 }
 
 /// Ask where to save an attachment and write it. Returns the saved path.
+#[cfg(desktop)]
 #[tauri::command]
 async fn save_attachment(app: AppHandle, state: State<'_, AppState>, message_id: String, index: usize) -> R<Option<String>> {
-    let att: AttachmentData = state.engine.attachment(&message_id, index).await.map_err(err)?;
+    let att: remail_core::engine::AttachmentData = state.engine.attachment(&message_id, index).await.map_err(err)?;
     let name = safe_filename(&att.filename);
     let picked = tauri::async_runtime::spawn_blocking(move || app.dialog().file().set_file_name(&name).blocking_save_file())
         .await
@@ -359,6 +364,7 @@ async fn save_attachment(app: AppHandle, state: State<'_, AppState>, message_id:
 }
 
 /// Write an attachment to a private temp folder and open it with the default app.
+#[cfg(desktop)]
 #[tauri::command]
 async fn open_attachment(app: AppHandle, state: State<'_, AppState>, message_id: String, index: usize) -> R<()> {
     let att = state.engine.attachment(&message_id, index).await.map_err(err)?;
@@ -373,6 +379,77 @@ async fn open_attachment(app: AppHandle, state: State<'_, AppState>, message_id:
     .await
     .map_err(|e| e.to_string())??;
     app.opener().open_path(path.display().to_string(), None::<&str>).map_err(|e| e.to_string())
+}
+
+/// Phones: colour the area behind the status and navigation bars like the app
+/// (`dark`: light icons). Desktop windows have no such bars.
+#[tauri::command]
+fn set_system_bars(app: AppHandle, dark: bool, background: String) {
+    #[cfg(mobile)]
+    crate::mobile::set_system_bars(&app, dark, &background);
+    #[cfg(desktop)]
+    let _ = (app, dark, background);
+}
+
+/// Phones: close the text menu (Copy, Share…) when nothing is selected.
+#[tauri::command]
+fn dismiss_text_menu(app: AppHandle) {
+    #[cfg(mobile)]
+    crate::mobile::dismiss_text_menu(&app);
+    #[cfg(desktop)]
+    let _ = app;
+}
+
+/// Whether OS notifications may be shown ("granted", "denied" or "prompt");
+/// `ask` asks the user first where the OS allows (Android 13+).
+#[tauri::command]
+async fn notification_permission(app: AppHandle, ask: bool) -> R<String> {
+    use tauri_plugin_notification::{NotificationExt, PermissionState};
+    let n = app.notification();
+    let state = if ask { n.request_permission() } else { n.permission_state() }.map_err(|e| e.to_string())?;
+    Ok(match state {
+        PermissionState::Granted => "granted",
+        PermissionState::Denied => "denied",
+        _ => "prompt",
+    }
+    .into())
+}
+
+/// Phones: write an attachment to the app's cache, where the native side can
+/// hand it to Downloads or another app.
+#[cfg(mobile)]
+async fn cache_attachment(app: &AppHandle, state: &State<'_, AppState>, message_id: &str, index: usize) -> R<(String, String, String)> {
+    use tauri::Manager;
+    let att = state.engine.attachment(message_id, index).await.map_err(err)?;
+    let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?.join("attachments");
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = base64::engine::general_purpose::STANDARD.decode(att.data_base64).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let name = safe_filename(&att.filename);
+        let path = dir.join(&name);
+        std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+        Ok((path.display().to_string(), name, att.mime_type))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Phones: save an attachment to Downloads. Returns where it went.
+#[cfg(mobile)]
+#[tauri::command]
+async fn save_attachment(app: AppHandle, state: State<'_, AppState>, message_id: String, index: usize) -> R<Option<String>> {
+    let (path, name, mime) = cache_attachment(&app, &state, &message_id, index).await?;
+    let saved = crate::mobile::save_to_downloads(&app, &path, &name, &mime);
+    let _ = std::fs::remove_file(&path);
+    saved.map(Some)
+}
+
+/// Phones: open an attachment in whichever app handles its type.
+#[cfg(mobile)]
+#[tauri::command]
+async fn open_attachment(app: AppHandle, state: State<'_, AppState>, message_id: String, index: usize) -> R<()> {
+    let (path, name, mime) = cache_attachment(&app, &state, &message_id, index).await?;
+    crate::mobile::open_file(&app, &path, &name, &mime)
 }
 
 // ---------------------------------------------------------------------------

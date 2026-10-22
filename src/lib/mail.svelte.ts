@@ -22,8 +22,9 @@ import type {
   ThreadSummary,
 } from "./types";
 import { applyTheme, toast, toastError } from "./ui.svelte";
-import { applyLanguageSetting } from "./i18n.svelte";
+import { applyLanguageSetting, t } from "./i18n.svelte";
 import { loadUiPrefs, onUiPrefs, saveUiPrefs, uiPrefs } from "./prefs.svelte";
+import { isMobile } from "./platform";
 
 export type Page = "list" | "search" | "scheduled" | "unsubscribe";
 
@@ -297,7 +298,7 @@ export async function loadMore() {
     await refreshThreads({ keepCount: true });
     if (!more) mail.hasMore = false;
   } catch (e) {
-    toastError(e, "Couldn't load older emails");
+    toastError(e, t("m.toast.olderFailed"));
   } finally {
     mail.loadingMore = false;
   }
@@ -420,14 +421,14 @@ export async function undoLast() {
   const u = lastUndo;
   lastUndo = null;
   if (!u || Date.now() - u.at > 60_000) {
-    toast("Nothing to undo");
+    toast(t("m.toast.nothingToUndo"));
     return;
   }
   try {
     await u.run();
     toast(u.label);
   } catch (e) {
-    toastError(e, "Could not undo");
+    toastError(e, t("m.toast.undoFailed"));
   }
 }
 
@@ -498,52 +499,52 @@ export async function act(action: ThreadAction, refs: ThreadRef[] = targets()) {
   switch (action.type) {
     case "archive":
       if (view !== L.INBOX && view !== L.UNREAD && mail.page !== "search") {
-        toast("Nothing to archive — already archived");
+        toast(t("m.toast.nothingToArchive"));
         return;
       }
-      message = count === 1 ? "Archived" : `Archived ${count}`;
+      message = count === 1 ? t("m.toast.archived.one") : t("m.toast.archived", { n: count });
       undo = { type: "moveToInbox", from: L.ARCHIVE };
       break;
     case "trash":
-      message = count === 1 ? "Moved to trash" : `Moved ${count} to trash`;
+      message = count === 1 ? t("m.toast.trashed.one") : t("m.toast.trashed", { n: count });
       undo = { type: "moveToInbox", from: L.TRASH };
       break;
     case "spam":
-      message = count === 1 ? "Marked as spam" : `Marked ${count} as spam`;
+      message = count === 1 ? t("m.toast.spam.one") : t("m.toast.spam", { n: count });
       undo = { type: "notSpam" };
       break;
     case "notSpam":
-      message = "Moved to inbox";
+      message = t("m.toast.notSpam");
       break;
     case "moveToInbox":
-      message = count === 1 ? "Restored to inbox" : `Restored ${count} to inbox`;
+      message = count === 1 ? t("m.toast.restored.one") : t("m.toast.restored", { n: count });
       break;
     case "move":
-      message = `Moved to ${labelName(action.to, refs[0].accountId)}`;
+      message = t("m.toast.moved", { label: labelName(action.to, refs[0].accountId) });
       undo = fromView && fromView !== L.STARRED && fromView !== L.UNREAD ? { type: "move", from: action.to, to: fromView } : null;
       break;
     case "markRead":
-      message = count === 1 ? "Marked as read" : `Marked ${count} as read`;
+      message = count === 1 ? t("m.toast.read.one") : t("m.toast.read", { n: count });
       undo = { type: "markUnread" };
       removes = view === L.UNREAD;
       break;
     case "markUnread":
-      message = count === 1 ? "Marked as unread" : `Marked ${count} as unread`;
+      message = count === 1 ? t("m.toast.unread.one") : t("m.toast.unread", { n: count });
       undo = { type: "markRead" };
       removes = false;
       break;
     case "star":
-      message = "Starred";
+      message = t("m.toast.starred");
       undo = { type: "unstar" };
       removes = false;
       break;
     case "unstar":
-      message = "Unstarred";
+      message = t("m.toast.unstarred");
       undo = { type: "star" };
       removes = view === L.STARRED;
       break;
     case "deleteForever":
-      message = count === 1 ? "Deleted forever" : `Deleted ${count} forever`;
+      message = count === 1 ? t("m.toast.deleted.one") : t("m.toast.deleted", { n: count });
       break;
   }
   try {
@@ -554,7 +555,7 @@ export async function act(action: ThreadAction, refs: ThreadRef[] = targets()) {
     if (undo) {
       const u = undo;
       lastUndo = { label: undoLabel(action), run: () => api.modifyThreads(refs, u).then(() => refreshThreads({ keepCount: true })), at: Date.now() };
-      toast(`${message} (Z to undo)`, { action: { label: "Undo", run: undoLast } });
+      toast(isMobile ? message : t("m.toast.undoHint", { message }), { action: { label: t("m.toast.undo"), run: undoLast } });
     } else {
       toast(message);
     }
@@ -567,21 +568,21 @@ export async function act(action: ThreadAction, refs: ThreadRef[] = targets()) {
 function undoLabel(a: ThreadAction): string {
   switch (a.type) {
     case "archive":
-      return "Unarchived";
+      return t("m.toast.unarchived");
     case "trash":
-      return "Restored from trash";
+      return t("m.toast.restoredTrash");
     case "spam":
-      return "Removed from spam";
+      return t("m.toast.removedSpam");
     case "markRead":
-      return "Marked as unread";
+      return t("m.toast.unread.one");
     case "markUnread":
-      return "Marked as read";
+      return t("m.toast.read.one");
     case "star":
-      return "Unstarred";
+      return t("m.toast.unstarred");
     case "unstar":
-      return "Starred";
+      return t("m.toast.starred");
     default:
-      return "Undone";
+      return t("m.toast.undone");
   }
 }
 
@@ -608,10 +609,10 @@ export async function snooze(until: number, refs: ThreadRef[] = targets()) {
     if (mail.view.label !== L.SNOOZED) await leaveView(refs);
     await api.snooze(refs, until);
     lastUndo = { label: "Email unsnoozed", run: () => api.unsnooze(refs).then(() => refreshThreads({ keepCount: true })), at: Date.now() };
-    toast(`Snoozed until ${wakeDate(until)}`, { action: { label: "Undo", run: undoLast } });
+    toast(t("m.toast.snoozed", { when: wakeDate(until) }), { action: { label: t("m.toast.undo"), run: undoLast } });
     await refreshThreads({ keepCount: true });
   } catch (e) {
-    toastError(e, "Failed to snooze");
+    toastError(e, t("m.toast.snoozeFailed"));
   }
 }
 
@@ -619,10 +620,10 @@ export async function unsnooze(refs: ThreadRef[] = targets()) {
   try {
     if (mail.view.label === L.SNOOZED) await leaveView(refs);
     await api.unsnooze(refs);
-    toast("Email unsnoozed");
+    toast(t("m.toast.unsnoozed"));
     await refreshThreads({ keepCount: true });
   } catch (e) {
-    toastError(e, "Failed to unsnooze");
+    toastError(e, t("m.toast.unsnoozeFailed"));
   }
 }
 
@@ -636,7 +637,7 @@ function composeAccount(): string | null {
 
 export async function compose(mailto?: string) {
   if (mail.accounts.length === 0) {
-    toast("Add an account first");
+    toast(t("m.toast.addAccount"));
     return;
   }
   try {
@@ -667,10 +668,10 @@ export async function undoSend(item: OutboxItem) {
   try {
     const draft = await api.undoSend(item.id);
     if (!draft) {
-      toast("Couldn't undo — the email is already sending", { kind: "error" });
+      toast(t("m.toast.sendUndoFailed"), { kind: "error" });
       return;
     }
-    toast("Sending undone");
+    toast(t("m.toast.sendUndone"));
     await api.openCompose(draft.id);
   } catch (e) {
     toastError(e);
@@ -754,14 +755,14 @@ async function handleEvent(e: EngineEvent) {
       sending.items = mail.outbox.filter((i) => i.kind === "undo");
       break;
     case "messageSent":
-      toast("Sent!", { kind: "success" });
+      toast(t("m.toast.sent"), { kind: "success" });
       break;
     case "sendFailed":
-      toast(`Couldn't send "${e.subject || "(No subject)"}": ${e.error}`, {
+      toast(t("m.toast.sendFailed", { subject: e.subject || t("m.row.noSubject"), error: e.error }), {
         kind: "error",
         duration: 10000,
         action: {
-          label: "Open draft",
+          label: t("m.toast.openDraft"),
           run: async () => {
             const item = mail.outbox.find((i) => i.draft.subject === e.subject && i.status === "failed");
             if (item) {
@@ -773,21 +774,21 @@ async function handleEvent(e: EngineEvent) {
       });
       break;
     case "snoozeWoke":
-      toast(`Back from snooze: ${e.subject || "(No subject)"}`, {
-        action: { label: "Open", run: () => openThread({ accountId: e.accountId, threadId: e.threadId }) },
+      toast(t("m.toast.snoozeWoke", { subject: e.subject || t("m.row.noSubject") }), {
+        action: { label: t("m.toast.open"), run: () => openThread({ accountId: e.accountId, threadId: e.threadId }) },
       });
       break;
     case "autoCleaned": {
       const n = e.threads.length;
-      const what = `${n} read email${n === 1 ? "" : "s"}`;
-      toast(e.action === "archive" ? `Auto-clean archived ${what}` : `Auto-clean moved ${what} to Trash`, {
+      const key = e.action === "archive" ? "m.toast.cleanArchived" : "m.toast.cleanTrashed";
+      toast(n === 1 ? t(`${key}.one`) : t(key, { n }), {
         duration: 8000,
         action: {
-          label: "Undo",
+          label: t("m.toast.undo"),
           run: async () => {
             try {
               await api.autocleanUndo(e.threads, e.messages);
-              toast(n === 1 ? "Restored. Auto-clean will leave it alone." : "Restored. Auto-clean will leave them alone.");
+              toast(n === 1 ? t("m.toast.cleanRestored.one") : t("m.toast.cleanRestored"));
             } catch (err) {
               toastError(err);
             }
@@ -816,8 +817,8 @@ function applyAi(v: AiSettingsView) {
 /** Guard for AI actions: explain how to set it up when it isn't. */
 export function aiAvailable(): boolean {
   if (mail.ai.ready) return true;
-  toast(mail.ai.enabled ? "Finish setting up the AI assistant in Settings" : "Turn on the AI assistant in Settings", {
-    action: { label: "Open Settings", run: () => void api.openSettings("ai") },
+  toast(mail.ai.enabled ? t("m.toast.aiFinish") : t("m.toast.aiTurnOn"), {
+    action: { label: t("m.toast.openSettings"), run: () => void api.openSettings("ai") },
   });
   return false;
 }
@@ -869,12 +870,12 @@ export async function initMail() {
   await listen("show-calendar", () => showCalendar());
   window.addEventListener("online", () => {
     mail.online = true;
-    toast("Back online");
+    toast(t("m.toast.online"));
     void api.syncNow();
   });
   window.addEventListener("offline", () => {
     mail.online = false;
-    toast("You are offline");
+    toast(t("m.toast.offline"));
   });
   // Re-render relative dates every minute.
   setInterval(() => (mail.clock = Date.now()), 60_000);
@@ -927,9 +928,9 @@ export async function runServerSearch() {
     const n = await api.serverSearch(mail.view.accountId, mail.searchQuery);
     mail.searchedServer = true;
     await refreshThreads();
-    toast(n > 0 ? `Found ${n} more on the server` : "No more results on the server");
+    toast(n > 0 ? t("m.toast.serverFound", { n }) : t("m.toast.serverNone"));
   } catch (e) {
-    toastError(e, "Server search failed");
+    toastError(e, t("m.toast.serverFailed"));
   } finally {
     mail.searchingServer = false;
   }

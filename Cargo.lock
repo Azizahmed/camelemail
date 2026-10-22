@@ -4487,13 +4487,14 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "remail"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
  "remail-core",
  "reqwest 0.12.28",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -4507,7 +4508,7 @@ dependencies = [
 
 [[package]]
 name = "remail-core"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "ammonia",
  "anyhow",
@@ -4550,7 +4551,7 @@ dependencies = [
 
 [[package]]
 name = "remail-proto"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -4565,7 +4566,7 @@ dependencies = [
 
 [[package]]
 name = "remail-server"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "aes-gcm",
  "anyhow",
