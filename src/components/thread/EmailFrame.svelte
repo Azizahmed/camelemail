@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import { applyDirections, arabicFontFaces, fixFinalMarks, useArabicFont } from "../../lib/bidi";
+  import { backgroundBehind, darkenEmail } from "../../lib/darkmail";
   import { escapeHtml } from "../../lib/format";
   import { isMobile } from "../../lib/platform";
+  import { theme } from "../../lib/ui.svelte";
 
   let {
     html,
@@ -48,6 +50,9 @@
       .join("");
   }
 
+  /** Dark theme: the email is recoloured to match (src/lib/darkmail.ts). */
+  const dark = $derived(theme.dark);
+
   const doc = $derived.by(() => {
     const remote = allowRemote ? " https: http:" : "";
     const csp = `default-src 'none'; img-src data: blob:${remote}; style-src 'unsafe-inline'${remote}; font-src data:${remote}; media-src data:${remote}`;
@@ -72,7 +77,10 @@
   .plain{white-space:pre-wrap;font-family:inherit}
   .plain .q{color:#777}
   blockquote{margin:0;margin-inline-start:.8ex;border-inline-start:2px solid #ccc;padding-inline-start:1ex;color:#555}
-  body.hide-quotes ${QUOTE_SELECTORS.join(",body.hide-quotes ")}{display:none!important}
+  body.hide-quotes ${QUOTE_SELECTORS.join(",body.hide-quotes ")}{display:none!important}${
+    // Hidden until recoloured, so the white original never flashes up.
+    dark ? `\n  :root{color-scheme:dark}\n  :root:not(.remail-dark){visibility:hidden}` : ""
+  }
 </style></head><body>${body}</body></html>`;
   });
 
@@ -81,6 +89,9 @@
   let resized: ResizeObserver | undefined;
   let lastOver = 0;
   let recheck = 0;
+
+  /** Behind the frame if nothing on the page has a colour (the reading pane's). */
+  const DARK_SURFACE = { r: 30, g: 31, b: 32, a: 1 };
 
   /** Smallest zoom for wide emails; anything wider still scrolls sideways. */
   const MIN_ZOOM = 0.35;
@@ -172,6 +183,14 @@
 
   function prepare(d: Document) {
     prepared.add(d);
+    if (dark) {
+      try {
+        darkenEmail(d, backgroundBehind(frame?.parentElement ?? null) ?? DARK_SURFACE, allowRemote);
+      } catch (e) {
+        console.error("dark email colours", e);
+      }
+      d.documentElement.classList.add("remail-dark");
+    }
     changes = [];
     heldWidth = 0;
     lastOver = 0;
@@ -230,30 +249,19 @@
   });
 </script>
 
-<div class="paper" class:plain={!html}>
-  <iframe
-    bind:this={frame}
-    title="Email content"
-    sandbox="allow-same-origin allow-popups"
-    srcdoc={doc}
-    style:height="{height}px"
-    onload={loaded}
-  ></iframe>
-</div>
+<iframe
+  bind:this={frame}
+  title="Email content"
+  sandbox="allow-same-origin allow-popups"
+  srcdoc={doc}
+  style:height="{height}px"
+  onload={loaded}
+></iframe>
 {#if hasQuote}
   <button class="quote-toggle" title={showQuote ? "Hide quoted content" : "Show quoted content"} onclick={() => (showQuote = !showQuote)}>•••</button>
 {/if}
 
 <style>
-  .paper {
-    background: var(--mail-paper);
-    border-radius: 10px;
-    padding: 12px 14px;
-  }
-  :global(html[data-theme="light"]) .paper {
-    padding: 0;
-    background: transparent;
-  }
   iframe {
     width: 100%;
     border: none;

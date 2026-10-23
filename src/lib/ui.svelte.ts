@@ -87,15 +87,19 @@ export function confirmDialog(opts: {
 const media = window.matchMedia("(prefers-color-scheme: dark)");
 let themeSetting: AppSettings["theme"] = "light";
 
+/** The theme in use ("system" resolved), for views that draw their own colours. */
+export const theme = $state({ dark: false });
+
 function apply() {
   const dark = themeSetting === "dark" || (themeSetting === "system" && media.matches);
   document.documentElement.dataset.theme = dark ? "dark" : "light";
+  theme.dark = dark;
 }
 
 media.addEventListener("change", apply);
 
-export function applyTheme(theme: AppSettings["theme"]) {
-  themeSetting = theme;
+export function applyTheme(setting: AppSettings["theme"]) {
+  themeSetting = setting;
   apply();
 }
 

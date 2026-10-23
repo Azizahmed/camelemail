@@ -1262,8 +1262,8 @@
   }
   .app-icon {
     width: 60px;
-    height: 56px;
-    object-fit: contain;
+    height: 60px;
+    border-radius: 14px;
     margin-bottom: 6px;
   }
   .about-name {

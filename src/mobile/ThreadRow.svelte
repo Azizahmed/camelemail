@@ -29,7 +29,9 @@
 
   const unread = $derived(t.unreadCount > 0);
   const sender = $derived(t.participants.length ? t.participants.slice(0, 3).join(", ") : t.senderEmail || tr("m.row.noSender"));
-  const acc = $derived(mail.accounts.length > 1 && mail.view.accountId === null ? account(t.accountId) : undefined);
+  // The mailbox's colour on every row (one mailbox picked or all of them), as
+  // long as there is more than one mailbox to tell apart.
+  const acc = $derived(mail.accounts.length > 1 ? account(t.accountId) : undefined);
 
   let el: HTMLDivElement | undefined = $state();
   let dx = $state(0);

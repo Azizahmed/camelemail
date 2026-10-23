@@ -559,6 +559,7 @@
   }
   .placeholder img {
     width: 64px;
+    border-radius: 15px;
     opacity: 0.35;
     filter: grayscale(0.3);
     margin-bottom: 6px;

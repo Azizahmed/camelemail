@@ -53,11 +53,10 @@
   --row-hover: linear-gradient(90deg, #f9f9fb 0%, #f1f2f4 2%, #f1f2f4 98%, #f9f9fb 100%);
   --row-selected-tint: rgba(211, 144, 51, 0.1);
   --unread-indicator: #d39033;
-  /* Brand: camel #D39033, charcoal #26231F (assets/camel-mail). */
+  /* Brand: camel #D39033, from the stamp logo (assets/camel-mail). */
   --accent: #d39033;
   --accent-hover: #b8761f;
   --accent-soft: rgba(211, 144, 51, 0.15);
-  --brand-charcoal: #1a1e25;
   --surface-reading: #ffffff;
   --interactive: #3b81f6;
   --indicator-success: #1f9d3a;
@@ -76,7 +75,6 @@
   --identity-violet: #8b5cf6;
   --shadow-dropdown: 0 12px 24px -3px rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   --shadow-panel: 0 0 14px rgba(0, 0, 0, 0.08);
-  --mail-paper: #ffffff;
 
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -122,7 +120,6 @@ html[data-theme="dark"] {
   --scheduled-text: #3ddc8a;
   --shadow-dropdown: 0 4px 24px rgba(0, 0, 0, 0.32);
   --shadow-panel: 0 0 14px rgba(0, 0, 0, 0.3);
-  --mail-paper: #ffffff;
   color-scheme: dark;
 }
 

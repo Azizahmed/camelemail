@@ -233,6 +233,7 @@
   }
   .empty img {
     width: 44px;
+    border-radius: 10px;
     opacity: 0.9;
   }
   .empty p {

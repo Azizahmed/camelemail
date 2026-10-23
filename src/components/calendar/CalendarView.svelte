@@ -732,6 +732,7 @@
   }
   .empty img {
     width: 64px;
+    border-radius: 15px;
   }
   .empty h2 {
     color: var(--content);
