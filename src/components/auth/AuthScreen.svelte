@@ -107,8 +107,8 @@
   .logo {
     align-self: center;
     width: 56px;
-    height: 52px;
-    object-fit: contain;
+    height: 56px;
+    border-radius: 13px;
   }
   .title {
     margin: 0;

@@ -374,7 +374,7 @@
   .logo {
     width: 22px;
     height: 22px;
-    object-fit: contain;
+    border-radius: 5px;
   }
   .word {
     font-weight: 700;
