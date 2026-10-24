@@ -1,7 +1,6 @@
 /* Camel Mail — mail.camelapp.si
-   Palette and forms taken from the stamp logo: the ochre field it sits on,
-   the cream stamp paper and postmark lines, the brown engraving. No black,
-   and no external requests. */
+   Palette and forms taken from the stamp logo: charcoal field, ochre stamp,
+   cream engraving and postmark lines. No external requests. */
 
 @font-face {
   font-family: "Libre Caslon";
@@ -33,14 +32,16 @@
 }
 
 :root {
-  --field: #c9841e;       /* the logo's field */
-  --field-deep: #8a4f12;  /* burnt ochre, under cream text */
-  --stamp: #e28e0c;       /* the stamp's own orange */
-  --paper: #f8e4c1;       /* the stamp's paper and postmark lines */
-  --paper-light: #fbf0dc;
-  --ink: #3f2408;         /* the engraving: text on the field and on paper */
-  --ink-soft: #6a4416;    /* quieter text, on paper only */
-  --ochre-ink: #8a5214;   /* links on paper */
+  --ground: #26231f;      /* the logo's field */
+  --ground-deep: #1e1b18;
+  --ground-raised: #2f2b26;
+  --ochre: #d18d33;
+  --ochre-ink: #8a5214;   /* ochre dark enough for text on paper */
+  --cream: #edcfa3;
+  --paper: #f3e3c3;
+  --ink: #2b2621;
+  --ink-soft: #5a4f43;
+  --cream-dim: #bba889;
 
   --serif: "Libre Caslon", "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
   --arabic: "Libre Caslon", "Amiri", "Noto Naskh Arabic", "Noto Sans Arabic", "Geeza Pro", "Traditional Arabic", serif;
@@ -53,9 +54,9 @@
   --perf-r: 7px;
   --perf-step: 22px;
 
-  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.16 0 0 0 0 0.13 0 0 0 0 0.1 0 0 0 .1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.16 0 0 0 0 0.13 0 0 0 0 0.1 0 0 0 .2 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 *,
@@ -73,8 +74,8 @@ html {
 
 body {
   margin: 0;
-  background: var(--field);
-  color: var(--ink);
+  background: var(--ground);
+  color: var(--cream);
   font-family: var(--serif);
   font-size: 1.125rem;
   line-height: 1.65;
@@ -92,11 +93,11 @@ body:lang(ar) {
 
 img, svg { display: block; max-width: 100%; }
 
-a { color: var(--ink); text-decoration-thickness: 1px; text-underline-offset: .18em; }
-a:hover { text-decoration-thickness: 2px; }
+a { color: var(--ochre); text-decoration-thickness: 1px; text-underline-offset: .18em; }
+a:hover { color: var(--cream); }
 
 :focus-visible {
-  outline: 2px solid var(--ink);
+  outline: 2px solid var(--ochre);
   outline-offset: 3px;
   border-radius: 2px;
 }
@@ -135,13 +136,14 @@ a:hover { text-decoration-thickness: 2px; }
   display: inline-flex;
   align-items: center;
   gap: .65rem;
-  color: var(--ink);
+  color: var(--cream);
   text-decoration: none;
   font-weight: 700;
   font-size: 1.2rem;
   letter-spacing: .005em;
 }
-.brand img { width: 40px; height: 40px; }
+.brand img { width: 36px; height: 36px; border-radius: 3px; }
+.brand:hover { color: var(--paper); }
 
 .nav {
   display: flex;
@@ -149,14 +151,15 @@ a:hover { text-decoration-thickness: 2px; }
   gap: clamp(.9rem, 2.5vw, 1.75rem);
   font-size: 1rem;
 }
-.nav a { color: var(--ink); text-decoration: none; }
-.nav a:hover { text-decoration: underline; }
+.nav a { color: var(--cream-dim); text-decoration: none; }
+.nav a:hover { color: var(--cream); text-decoration: underline; }
 .nav .lang {
-  border: 1px solid rgb(63 36 8 / .4);
+  color: var(--cream);
+  border: 1px solid rgb(237 207 163 / .35);
   border-radius: 999px;
   padding: .15rem .8rem .2rem;
 }
-.nav .lang:hover { border-color: var(--ink); background: rgb(248 228 193 / .35); text-decoration: none; }
+.nav .lang:hover { border-color: var(--ochre); text-decoration: none; }
 .nav .lang:lang(ar) { font-family: var(--arabic); font-size: 1.1rem; }
 .nav .lang:lang(en) { font-family: var(--serif); }
 
@@ -164,7 +167,7 @@ a:hover { text-decoration-thickness: 2px; }
   .nav .hide-narrow { display: none; }
 }
 
-/* ---------- hero: the logo on its own field ---------- */
+/* ---------- hero: the stamp and its cancellation lines ---------- */
 
 .hero {
   position: relative;
@@ -172,16 +175,18 @@ a:hover { text-decoration-thickness: 2px; }
   padding-block: clamp(1.5rem, 5vw, 4.5rem) clamp(1.5rem, 4vw, 3rem);
 }
 .hero .wrap {
-  --stamp: clamp(16rem, 34vw, 28rem);
+  --stamp: clamp(15rem, 31vw, 26rem);
   display: grid;
   grid-template-columns: var(--stamp) minmax(0, 1fr);
-  align-items: center;
+  align-items: start;
   gap: clamp(2rem, 5vw, 4.5rem);
   direction: ltr;               /* the stamp stays on the left in both languages */
 }
 .hero-copy {
   position: relative;
   z-index: 1;
+  /* sit just under the cancellation lines, which end ~31% down the stamp */
+  padding-top: calc(var(--stamp) * .37);
 }
 .hero-copy:lang(ar) { direction: rtl; }
 
@@ -193,14 +198,28 @@ a:hover { text-decoration-thickness: 2px; }
 .stamp picture,
 .stamp img { width: 100%; height: auto; position: relative; z-index: 1; }
 
+/* The SVG uses the icon's own 512-unit coordinate space, so the three
+   postmark lines continue exactly where the image leaves them. */
+.cancel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 360%;
+  max-width: none;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+.cancel path { fill: none; stroke-width: 8.5; stroke-linecap: round; }
+
 .postmark {
   position: absolute;
   z-index: 2;
-  width: 34%;
-  right: -9%;
-  bottom: -2%;
-  color: var(--ink);
-  opacity: .62;
+  width: 40%;
+  right: -17%;
+  bottom: -9%;
+  color: var(--cream);
+  opacity: .78;
   transform: rotate(-11deg);
   pointer-events: none;
 }
@@ -211,7 +230,7 @@ a:hover { text-decoration-thickness: 2px; }
   stroke-linejoin: round;
 }
 .postmark text {
-  stroke: var(--field);
+  stroke: var(--ground);
   stroke-width: 3px;
   font-family: var(--serif);
   font-size: 13.5px;
@@ -226,7 +245,7 @@ a:hover { text-decoration-thickness: 2px; }
   font-size: clamp(3.4rem, 8.6vw, 6.75rem);
   line-height: .95;
   letter-spacing: -.012em;
-  color: var(--ink);
+  color: var(--cream);
   font-family: var(--serif);
 }
 .lede {
@@ -234,7 +253,7 @@ a:hover { text-decoration-thickness: 2px; }
   max-width: 31rem;
   font-size: clamp(1.25rem, 2.1vw, 1.5rem);
   line-height: 1.45;
-  color: var(--ink);
+  color: var(--paper);
 }
 .lede:lang(ar) { font-size: clamp(1.4rem, 2.4vw, 1.7rem); line-height: 1.7; max-width: 32rem; }
 
@@ -247,20 +266,21 @@ a:hover { text-decoration-thickness: 2px; }
 }
 .button {
   display: inline-block;
-  background: var(--paper);
-  color: var(--ink);
+  background: var(--ochre);
+  color: var(--ground-deep);
   font-weight: 700;
   text-decoration: none;
   padding: .7rem 1.35rem .75rem;
   border-radius: 3px;
-  box-shadow: 0 2px 0 var(--field-deep);
+  box-shadow: 0 2px 0 #8f5c1d;
 }
-.button:hover { background: var(--paper-light); color: var(--ink); }
-.button:active { transform: translateY(1px); box-shadow: 0 1px 0 var(--field-deep); }
-.text-link { color: var(--ink); }
+.button:hover { background: var(--cream); color: var(--ground-deep); box-shadow: 0 2px 0 #a88c62; }
+.button:active { transform: translateY(1px); box-shadow: 0 1px 0 #8f5c1d; }
+.text-link { color: var(--cream); }
 
 .platforms {
   margin: 1.6rem 0 0;
+  color: var(--cream-dim);
   font-size: 1rem;
 }
 
@@ -286,8 +306,7 @@ a:hover { text-decoration-thickness: 2px; }
   letter-spacing: -.01em;
 }
 .section-head h2:lang(ar) { font-weight: 700; line-height: 1.4; letter-spacing: 0; }
-.section-head p { margin: 1rem 0 0; font-size: 1.2rem; max-width: var(--measure); }
-.paper .section-head p { color: var(--ink-soft); }
+.section-head p { margin: 1rem 0 0; color: var(--cream-dim); font-size: 1.2rem; max-width: var(--measure); }
 
 .features { list-style: none; margin: 0; padding: 0; }
 /* Features are divided by tear lines: rows of punched holes, the way sheets of stamps divide. */
@@ -298,22 +317,22 @@ a:hover { text-decoration-thickness: 2px; }
   padding-block: clamp(1.75rem, 3.5vw, 2.5rem);
 }
 .feature + .feature {
-  background: radial-gradient(circle, rgb(138 82 20 / .35) 2.4px, transparent 3px) 0 0 / 14px 8px repeat-x;
+  background: radial-gradient(circle, rgb(237 207 163 / .3) 2.4px, transparent 3px) 0 0 / 14px 8px repeat-x;
 }
 .feature h3 {
   margin: 0;
   font-size: 1.5rem;
   line-height: 1.25;
   font-weight: 700;
-  color: var(--ink);
+  color: var(--cream);
 }
 .feature h3:lang(ar) { font-size: 1.65rem; line-height: 1.5; }
 .feature-body { max-width: var(--measure); }
-.feature-body p { margin: 0; color: var(--ink-soft); }
+.feature-body p { margin: 0; color: var(--cream-dim); }
 .feature-body p + p,
 .feature-body p + .sample,
 .feature-body .sample + p { margin-top: 1rem; }
-.feature-body strong { color: var(--ink); font-weight: 700; }
+.feature-body strong { color: var(--cream); font-weight: 700; }
 
 @media (max-width: 46rem) {
   .feature { grid-template-columns: 1fr; }
@@ -329,10 +348,9 @@ kbd {
   line-height: 1.35;
   text-align: center;
   color: var(--ink);
-  background: var(--paper-light);
-  border: 1px solid #dfc193;
+  background: var(--paper);
   border-radius: 3px;
-  box-shadow: inset 0 -2px 0 #e6cda4;
+  box-shadow: inset 0 -2px 0 #c9ad83;
   direction: ltr;
   unicode-bidi: isolate;
 }
@@ -341,9 +359,9 @@ kbd {
 .sample {
   margin: 0;
   padding: .9rem 1.1rem;
-  background: var(--paper-light);
-  border-inline-start: 3px solid var(--stamp);
-  color: var(--ink);
+  background: var(--ground-raised);
+  border-inline-start: 3px solid var(--ochre);
+  color: var(--paper);
   font-size: 1.05rem;
   line-height: 1.6;
 }
@@ -351,7 +369,7 @@ kbd {
 .sample [dir="rtl"] { font-family: var(--arabic); font-size: 1.2rem; line-height: 1.8; }
 .sample [dir="ltr"] { font-family: var(--serif); }
 
-/* ---------- paper: a sheet with perforated edges, like a sheet of stamps ---------- */
+/* ---------- privacy: a sheet of paper with perforated edges ---------- */
 
 .paper {
   position: relative;
@@ -370,7 +388,8 @@ kbd {
 .paper a:hover { color: var(--ink); }
 .paper :focus-visible { outline-color: var(--ochre-ink); }
 
-/* ---------- privacy, on the field ---------- */
+.privacy-band .section-head p { color: var(--ink-soft); }
+.privacy-band h2 { color: var(--ink); }
 
 .route {
   display: grid;
@@ -389,7 +408,7 @@ kbd {
   border: 1.5px solid var(--ink);
   border-radius: 4px;
   padding: .8rem 1rem .9rem;
-  background: var(--paper);
+  background: rgb(255 248 233 / .55);
   line-height: 1.35;
 }
 .node b { display: block; font-size: 1.15rem; }
@@ -401,7 +420,7 @@ kbd {
   align-self: end;
   height: 14px;
   /* the postmark wave, drawn as a repeating line */
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='14' viewBox='0 0 40 14'%3E%3Cpath d='M0 7 C10 0 10 0 20 7 S30 14 40 7' fill='none' stroke='%23f8e4c1' stroke-width='2.5'/%3E%3C/svg%3E") 0 50% / 40px 14px repeat-x;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='14' viewBox='0 0 40 14'%3E%3Cpath d='M0 7 C10 0 10 0 20 7 S30 14 40 7' fill='none' stroke='%23d18d33' stroke-width='2.5'/%3E%3C/svg%3E") 0 50% / 40px 14px repeat-x;
 }
 .route-note {
   grid-area: note;
@@ -410,19 +429,20 @@ kbd {
   text-align: center;
   font-size: .95rem;
   line-height: 1.35;
+  color: var(--ink-soft);
 }
 .route-down {
   grid-area: down;
   justify-self: center;
   width: 0;
   height: 2.2rem;
-  border-inline-start: 2px dashed rgb(63 36 8 / .55);
+  border-inline-start: 2px dashed rgb(43 38 33 / .45);
 }
 .node-cloud {
   grid-area: cloud;
   justify-self: start;
   border-style: dashed;
-  background: var(--paper);
+  background: transparent;
   max-width: 34rem;
 }
 
@@ -433,7 +453,7 @@ kbd {
     row-gap: .5rem;
   }
   .route-line { width: 14px; height: 3.5rem; justify-self: center; transform: none;
-    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='40' viewBox='0 0 14 40'%3E%3Cpath d='M7 0 C0 10 0 10 7 20 S14 30 7 40' fill='none' stroke='%23f8e4c1' stroke-width='2.5'/%3E%3C/svg%3E") 50% 0 / 14px 40px repeat-y; }
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='40' viewBox='0 0 14 40'%3E%3Cpath d='M7 0 C0 10 0 10 7 20 S14 30 7 40' fill='none' stroke='%23d18d33' stroke-width='2.5'/%3E%3C/svg%3E") 50% 0 / 14px 40px repeat-y; }
   .route-note { margin: 0 0 .25rem; }
   .route-down { justify-self: center; }
   .node-cloud { justify-self: stretch; }
@@ -461,7 +481,7 @@ kbd {
   width: .7rem;
   height: .7rem;
   border-radius: 50%;
-  border: 2px solid var(--ink);
+  border: 2px solid var(--ochre-ink);
 }
 .promises b { display: block; font-size: 1.15rem; margin-bottom: .2rem; }
 .privacy-band .more { margin: clamp(2.25rem, 4vw, 3rem) 0 0; font-size: 1.15rem; }
@@ -477,7 +497,7 @@ kbd {
   letter-spacing: -.012em;
 }
 .doc-head h1:lang(ar) { font-weight: 700; line-height: 1.35; letter-spacing: 0; }
-.doc-head p { margin: 1rem 0 0; max-width: var(--measure); }
+.doc-head p { margin: 1rem 0 0; color: var(--cream-dim); max-width: var(--measure); }
 
 .sheet {
   padding-block: clamp(3rem, 7vw, 5rem);
@@ -518,7 +538,7 @@ kbd {
 .prose .callout {
   margin: 1.25rem 0 1.25rem;
   padding: 1rem 1.2rem;
-  border-inline-start: 3px solid var(--stamp);
+  border-inline-start: 3px solid var(--ochre);
   background: rgb(255 248 233 / .6);
 }
 .prose .callout p:last-child { margin-bottom: 0; }
@@ -531,8 +551,8 @@ kbd {
 /* ---------- footer ---------- */
 
 .site-footer {
-  background: var(--field-deep);
-  color: var(--paper);
+  background: var(--ground-deep);
+  color: var(--cream-dim);
   font-size: 1rem;
   padding-block: 3rem 3.5rem;
 }
@@ -544,13 +564,12 @@ kbd {
   gap: 2rem 3rem;
 }
 .foot-brand { display: flex; gap: .9rem; align-items: center; max-width: 24rem; }
-.foot-brand img { width: 52px; height: 52px; border-radius: 10px; flex: none; }
+.foot-brand img { width: 52px; height: 52px; border-radius: 3px; flex: none; }
 .foot-brand p { margin: 0; line-height: 1.45; }
-.foot-brand b { color: var(--paper-light); display: block; }
+.foot-brand b { color: var(--cream); display: block; }
 .foot-links { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .6rem 1.75rem; }
-.foot-links a { color: var(--paper-light); text-decoration: none; }
-.foot-links a:hover { text-decoration: underline; }
-.site-footer :focus-visible { outline-color: var(--paper-light); }
+.foot-links a { color: var(--cream); text-decoration: none; }
+.foot-links a:hover { color: var(--ochre); text-decoration: underline; }
 
 /* ---------- 404 ---------- */
 
@@ -562,13 +581,13 @@ kbd {
   padding-block: 3rem;
 }
 .lost h1 { font-weight: 400; font-size: clamp(2.4rem, 6vw, 3.75rem); line-height: 1.1; margin: 1.5rem 0 .75rem; }
-.lost p { margin: 0 auto .5rem; max-width: 30rem; }
+.lost p { color: var(--cream-dim); margin: 0 auto .5rem; max-width: 30rem; }
 .lost p:lang(ar) { font-family: var(--arabic); }
-.lost img { width: 180px; height: 180px; margin-inline: auto; transform: rotate(-6deg); }
+.lost img { width: 140px; height: 140px; margin-inline: auto; transform: rotate(-6deg); }
 
 @media print {
   .site-header, .site-footer, .toc, .skip { display: none; }
-  body, .paper { background: #fff; color: var(--ink); -webkit-mask: none; mask: none; }
+  body, .paper { background: #fff; color: #000; -webkit-mask: none; mask: none; }
 }
 
 .keys { direction: ltr; unicode-bidi: isolate; white-space: nowrap; }
