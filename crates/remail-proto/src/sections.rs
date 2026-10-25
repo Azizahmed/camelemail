@@ -11,13 +11,14 @@ pub const ACCOUNTS: &str = "accounts";
 pub const CALENDARS: &str = "calendars";
 pub const SIGNATURES: &str = "signatures";
 pub const TEMPLATES: &str = "templates";
+pub const LAYOUTS: &str = "layouts";
 pub const SENDER_RULES: &str = "sender_rules";
 pub const SNOOZES: &str = "snoozes";
 /// `cred:<acc_…|cal_…>`: one credential per section, so a token refresh never
 /// races an edit of the account itself.
 pub const CRED_PREFIX: &str = "cred:";
 
-pub const FIXED: [&str; 8] = [PREFS, SHORTCUTS, ACCOUNTS, CALENDARS, SIGNATURES, TEMPLATES, SENDER_RULES, SNOOZES];
+pub const FIXED: [&str; 9] = [PREFS, SHORTCUTS, ACCOUNTS, CALENDARS, SIGNATURES, LAYOUTS, TEMPLATES, SENDER_RULES, SNOOZES];
 
 /// Largest single section (ciphertext is a little bigger).
 pub const MAX_SECTION_BYTES: usize = 256 * 1024;
@@ -133,6 +134,7 @@ mod tests {
     #[test]
     fn section_names() {
         assert!(is_valid("prefs"));
+        assert!(is_valid("layouts"));
         assert!(is_valid("cred:acc_0123abcd"));
         assert!(is_valid("cred:cal_x"));
         assert!(!is_valid("cred:../etc"));

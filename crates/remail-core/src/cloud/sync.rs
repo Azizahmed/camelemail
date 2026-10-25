@@ -49,7 +49,7 @@ const PUT_ATTEMPTS: u32 = 5;
 /// Sections applied in full every time (they may wait for mail or accounts
 /// that arrive later); the others only where the merge changed something.
 fn always_full(section: &str) -> bool {
-    matches!(section, sections::SNOOZES | sections::SIGNATURES | sections::CALENDARS)
+    matches!(section, sections::SNOOZES | sections::SIGNATURES | sections::LAYOUTS | sections::CALENDARS)
 }
 
 impl CloudInner {
@@ -248,7 +248,9 @@ impl CloudInner {
                 }
                 // The server won't take it (a provider the org turned off, too
                 // big): keep the change here and say so; other sections go on.
-                Err(e) if matches!(e.code.as_str(), "provider_not_allowed" | "too_large" | "bad_request") => {
+                // A server that doesn't know the section yet (a newer app than the
+                // server) is the same: the data stays here until it's updated.
+                Err(e) if matches!(e.code.as_str(), "provider_not_allowed" | "too_large" | "bad_request" | "not_found") => {
                     tracing::warn!(section = id, "the Remail server refused this section: {e}");
                     return Ok(());
                 }

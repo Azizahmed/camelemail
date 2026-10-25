@@ -6,7 +6,7 @@
   import {
     Users, SlidersHorizontal, PenLine, FileText, Clock, Info, Plus, Trash2, ChevronRight,
     Bold, Italic, Underline, Link as LinkIcon, Code, Check, X, RotateCcw, Plug, Eraser, CalendarDays, Keyboard, Sparkles, CircleUserRound,
-    ShieldCheck,
+    ShieldCheck, LayoutTemplate,
   } from "@lucide/svelte";
   import { api, onEngineEvent } from "../../lib/api";
   import { ADMIN_TABS, type AdminTab } from "../../lib/admin";
@@ -22,6 +22,7 @@
   import AdminSettings from "./admin/AdminSettings.svelte";
   import CalendarSettings from "./CalendarSettings.svelte";
   import ConnectionsSettings from "./ConnectionsSettings.svelte";
+  import LayoutSettings from "./LayoutSettings.svelte";
   import ShortcutsSettings from "./ShortcutsSettings.svelte";
   import ConfirmDialog from "../ConfirmDialog.svelte";
   import Toasts from "../Toasts.svelte";
@@ -47,6 +48,7 @@
     { id: "calendar", label: "Calendar", icon: CalendarDays },
     { id: "connections", label: "Connections", icon: Plug },
     { id: "signatures", label: "Signatures", icon: PenLine },
+    { id: "layouts", label: "Branded layouts", key: "layout.title", icon: LayoutTemplate },
     { id: "templates", label: "Templates", icon: FileText },
     { id: "snooze", label: "Snooze", icon: Clock },
     { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
@@ -787,6 +789,9 @@
           </div>
           <button class="btn add-btn" onclick={() => editSig(null)}><Plus size={15} /> New signature</button>
         {/if}
+
+      {:else if section === "layouts"}
+        <LayoutSettings />
 
       {:else if section === "templates"}
         <h1>Templates</h1>

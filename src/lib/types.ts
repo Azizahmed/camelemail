@@ -188,6 +188,8 @@ export interface Draft {
   threadId: string | null;
   replyKind: ReplyKind | null;
   signatureId: string | null;
+  /** Branded layout wrapped around the body when it's sent. */
+  layoutId?: string | null;
   updatedAt: number;
 }
 
@@ -197,6 +199,81 @@ export interface Signature {
   name: string;
   html: string;
   isDefault: boolean;
+}
+
+export interface LayoutLogo {
+  /** Base64 of a PNG, JPEG or GIF; empty when only `url` is used. */
+  data: string;
+  mime: string;
+  /** Display size in CSS pixels. */
+  width: number;
+  height: number;
+  /** Empty: the organisation's name plus "logo". */
+  alt: string;
+  /** Public https address, used instead of the picture. */
+  url: string | null;
+  /** Dominant colours (#rrggbb), worked out when the picture is chosen. */
+  colors: string[];
+}
+
+export type LayoutAlign = "left" | "center";
+export type LayoutDivider = "none" | "line" | "bar";
+export type LogoPosition = "left" | "center" | "above";
+export type FooterAlign = "left" | "center" | "right";
+export type FooterLogo = "none" | "beside" | "above";
+export type ButtonStyle = "filled" | "outline";
+
+/** Design choices only; the Rust renderer turns them into email-safe HTML. */
+export interface LayoutStyle {
+  accent: string;
+  headerBg: string;
+  textColor: string;
+  mutedColor: string;
+  alignment: LayoutAlign;
+  divider: LayoutDivider;
+  logoPosition: LogoPosition;
+  footerAlign: FooterAlign;
+  footerLogo: FooterLogo;
+  buttonStyle: ButtonStyle;
+  tagline: string | null;
+  /** The ready-made template this design came from (null: customised). */
+  template: string | null;
+}
+
+export interface LayoutButton {
+  label: string;
+  /** `https://` or `mailto:`. */
+  url: string;
+}
+
+export interface BrandedLayout {
+  id: string;
+  accountId: string | null;
+  name: string;
+  orgName: string;
+  /** A short description of the organisation, shown in the header. */
+  about: string;
+  logo: LayoutLogo | null;
+  /** The header's button. */
+  button: LayoutButton | null;
+  senderName: string;
+  position: string;
+  phone: string;
+  email: string;
+  style: LayoutStyle;
+  /** Also wrap replies and forwards (new mail is always wrapped). */
+  useOnReplies: boolean;
+  isDefault: boolean;
+  updatedAt: number;
+}
+
+export interface LayoutPreview {
+  header: string;
+  footer: string;
+  /** A sample message inside the layout, as it would be sent. */
+  full: string;
+  /** Style fields (accent, textColor, mutedColor) the renderer darkened to stay readable. */
+  adjusted: string[];
 }
 
 export interface Template {
@@ -397,13 +474,16 @@ export type AiTask =
   | { type: "summarize"; accountId: string; threadId: string }
   | { type: "reply"; messageId: string; kind: ReplyKind; instructions: string }
   | { type: "compose"; accountId: string | null; instructions: string; to: EmailAddress[]; subject: string; current: string }
-  | { type: "rewrite"; accountId: string | null; text: string; mode: string; instructions: string };
+  | { type: "rewrite"; accountId: string | null; text: string; mode: string; instructions: string }
+  | { type: "layout"; layout: BrandedLayout; variation: number; instructions: string };
 
 export interface AiOutput {
   text: string;
   html: string | null;
   subject: string | null;
   draft: Draft | null;
+  /** The design a layout task chose. */
+  style: LayoutStyle | null;
 }
 
 export type ChatEvent =

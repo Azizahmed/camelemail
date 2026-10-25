@@ -13,6 +13,7 @@
     allowRemote = false,
     collapseQuotes = true,
     fitWidth = isMobile,
+    dark: forceDark,
   }: {
     html: string | null;
     text: string | null;
@@ -20,6 +21,8 @@
     collapseQuotes?: boolean;
     /** Shrink emails wider than the frame (fixed-width tables, min-widths) to fit it. */
     fitWidth?: boolean;
+    /** Recolour for a dark background (or not) whatever the app's theme is: previews of both looks. */
+    dark?: boolean;
   } = $props();
 
   let frame: HTMLIFrameElement | undefined = $state();
@@ -52,7 +55,7 @@
   }
 
   /** Dark theme: the email is recoloured to match (src/lib/darkmail.ts). */
-  const dark = $derived(theme.dark);
+  const dark = $derived(forceDark ?? theme.dark);
 
   const doc = $derived.by(() => {
     const remote = allowRemote ? " https: http:" : "";

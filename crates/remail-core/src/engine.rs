@@ -26,6 +26,7 @@ use crate::assistant::{self, ChatEvent};
 use crate::cloud::CloudError;
 use crate::compose;
 use crate::imap::{self, ImapConn};
+use crate::layout;
 use crate::mcp::client::{McpHub, McpServerConfig, McpTransport};
 use crate::mcp::server::{McpServerHandle, ToolHandler};
 use crate::mcp::{self as mcpmod, ServerInfo, ToolInfo, ToolOutput};
@@ -320,6 +321,10 @@ pub enum AiTask {
     /// `mode`: improve | fix | shorter | longer | formal | friendly | translate:<language> | custom.
     #[serde(rename_all = "camelCase")]
     Rewrite { account_id: Option<String>, text: String, mode: String, instructions: String },
+    /// Design choices for a branded layout from its details (the form's current state);
+    /// `variation` above 0 asks for a design different from the last.
+    #[serde(rename_all = "camelCase")]
+    Layout { layout: Box<BrandedLayout>, variation: u32, instructions: String },
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -329,6 +334,8 @@ pub struct AiOutput {
     pub html: Option<String>,
     pub subject: Option<String>,
     pub draft: Option<Draft>,
+    /// The design a `Layout` task chose.
+    pub style: Option<LayoutStyle>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1602,8 +1609,12 @@ impl Engine {
         accounts.into_iter().next().context("Add an account first")
     }
 
-    fn blank_draft(&self, account: &Account) -> Result<Draft> {
-        let signature = self.inner.store.default_signature(&account.id)?;
+    /// A fresh draft with the account's default layout, or else its default
+    /// signature (a layout's footer already is the sender's signature block).
+    /// Replies and forwards only take the layout when it is set to be used there.
+    fn blank_draft(&self, account: &Account, reply: bool) -> Result<Draft> {
+        let layout = self.inner.store.default_layout(&account.id)?.filter(|l| !reply || l.use_on_replies);
+        let signature = if layout.is_some() { None } else { self.inner.store.default_signature(&account.id)? };
         let html_body = match &signature {
             Some(s) => format!("<div><br></div>{}", compose::signature_block(&s.html)),
             None => String::new(),
@@ -1622,19 +1633,20 @@ impl Engine {
             thread_id: None,
             reply_kind: None,
             signature_id: signature.map(|s| s.id),
+            layout_id: layout.map(|l| l.id),
             updated_at: now_ms(),
         })
     }
 
     pub fn new_draft(&self, account_id: Option<&str>) -> Result<Draft> {
         let account = self.default_account(account_id)?;
-        self.blank_draft(&account)
+        self.blank_draft(&account, false)
     }
 
     pub fn mailto_draft(&self, url: &str, account_id: Option<&str>) -> Result<Draft> {
         let m = compose::parse_mailto(url).context("not a mailto: link")?;
         let account = self.default_account(account_id)?;
-        let mut d = self.blank_draft(&account)?;
+        let mut d = self.blank_draft(&account, false)?;
         let addrs = |v: &[String]| v.iter().filter_map(|a| compose::parse_address(a)).collect::<Vec<_>>();
         d.to = addrs(&m.to);
         d.cc = addrs(&m.cc);
@@ -1651,7 +1663,7 @@ impl Engine {
         let meta = self.inner.store.message_meta(message_id)?.context("message not found")?;
         let account = self.default_account(Some(&meta.account_id))?;
         let original = self.message_full(meta, true).await;
-        let mut d = self.blank_draft(&account)?;
+        let mut d = self.blank_draft(&account, true)?;
         let (to, cc) = compose::reply_recipients(&original, kind, &account.email, &self.own_addresses());
         d.to = to;
         d.cc = cc;
@@ -1690,7 +1702,7 @@ impl Engine {
         let meta = self.inner.store.message_meta(message_id)?.context("draft not found")?;
         let full = self.message_full(meta.clone(), true).await;
         let account = self.default_account(Some(&meta.account_id))?;
-        let mut d = self.blank_draft(&account)?;
+        let mut d = self.blank_draft(&account, false)?;
         d.to = meta.to;
         d.cc = meta.cc;
         d.bcc = meta.bcc;
@@ -1698,6 +1710,7 @@ impl Engine {
         d.html_body = full.html.or_else(|| full.text.map(|t| compose::text_to_html(&t))).unwrap_or_default();
         d.thread_id = Some(meta.thread_id);
         d.signature_id = None;
+        d.layout_id = None;
         self.inner.store.save_draft(&d, Some(message_id), false)?;
         Ok(d)
     }
@@ -1793,7 +1806,7 @@ impl Engine {
     fn validate(&self, draft: &Draft) -> Result<()> {
         let account = self.default_account(Some(&draft.account_id))?;
         compose::build_message(
-            draft,
+            &wrapped(&self.inner.store, draft),
             &compose::OutgoingMeta {
                 from: EmailAddress::new(account.display_name, account.email),
                 message_id: "check@remail.local".into(),
@@ -1933,6 +1946,70 @@ impl Engine {
         self.inner.store.delete_template(id)?;
         self.mark_dirty(sections::TEMPLATES);
         Ok(())
+    }
+
+    // ------------------------------------------------------------------
+    // Branded layouts
+    // ------------------------------------------------------------------
+
+    pub fn layouts(&self) -> Result<Vec<BrandedLayout>> {
+        self.inner.store.layouts()
+    }
+
+    pub fn save_layout(&self, mut l: BrandedLayout) -> Result<BrandedLayout> {
+        l.name = l.name.trim().to_string();
+        l.about = l.about.split_whitespace().collect::<Vec<_>>().join(" ");
+        // A button with nothing in it is no button; one with half of it is for `validate` to refuse.
+        if let Some(b) = l.button.as_mut() {
+            b.label = b.label.trim().to_string();
+            b.url = b.url.trim().to_string();
+        }
+        if l.button.as_ref().is_some_and(|b| b.label.is_empty() && b.url.is_empty()) {
+            l.button = None;
+        }
+        l.style = layout::sanitize_style(&l.style).0;
+        layout::validate(&l)?;
+        if let Some(acc) = &l.account_id {
+            if self.inner.store.account(acc)?.is_none() {
+                bail!("That account doesn't exist");
+            }
+        }
+        if l.id.is_empty() {
+            l.id = new_id("lay");
+        }
+        let all = self.inner.store.layouts()?;
+        if !all.iter().any(|x| x.id == l.id) && all.len() >= layout::MAX_LAYOUTS {
+            bail!("You can keep up to {} layouts; delete one first", layout::MAX_LAYOUTS);
+        }
+        let others: usize = all.iter().filter(|x| x.id != l.id).map(|x| serde_json::to_string(x).map_or(0, |j| j.len())).sum();
+        if others + serde_json::to_string(&l)?.len() > layout::MAX_TOTAL_BYTES {
+            bail!("Your layouts hold too much picture data; use a smaller logo");
+        }
+        l.updated_at = now_ms();
+        self.inner.store.save_layout(&l)?;
+        self.mark_dirty(sections::LAYOUTS);
+        Ok(l)
+    }
+
+    pub fn delete_layout(&self, id: &str) -> Result<()> {
+        self.inner.store.delete_layout(id)?;
+        self.mark_dirty(sections::LAYOUTS);
+        Ok(())
+    }
+
+    /// The rendered header and footer of a layout as it stands in the form (not yet saved).
+    pub fn layout_preview(&self, l: &BrandedLayout, sample_html: &str) -> LayoutPreview {
+        layout::preview(l, &render::sanitize_html(sample_html))
+    }
+
+    /// A design from the logo's colours, without AI. Each `variation` is a different one.
+    pub fn layout_suggest(&self, colors: &[String], variation: u32) -> LayoutStyle {
+        layout::suggest_style(colors, variation)
+    }
+
+    /// One of the ready-made templates, in the logo's colours.
+    pub fn layout_preset(&self, id: &str, colors: &[String]) -> LayoutStyle {
+        layout::preset_style(id, colors)
     }
 
     // ------------------------------------------------------------------
@@ -2232,7 +2309,7 @@ impl Engine {
                 let text = ai::strip_fences(&usable_text(&turn, false)?);
                 let html = ai::text_to_email_html(&text);
                 draft.html_body = assistant::with_body(&draft.html_body, &html);
-                Ok(AiOutput { text, html: Some(html), subject: None, draft: Some(draft) })
+                Ok(AiOutput { text, html: Some(html), subject: None, draft: Some(draft), ..Default::default() })
             }
             AiTask::Compose { account_id, instructions: wish, to, subject, current } => {
                 let mut user = String::new();
@@ -2249,7 +2326,7 @@ impl Engine {
                 let system = format!("{}\n\n{}", ai::base_system(&self.owner(account_id.as_deref()), &instructions), ai::compose_prompt());
                 let turn = client.stream(&system, &[ai::Message::user(user)], &[], None, on_text).await?;
                 let (subj, body) = ai::split_subject(&usable_text(&turn, false)?);
-                Ok(AiOutput { html: Some(ai::text_to_email_html(&body)), text: body, subject: subj, draft: None })
+                Ok(AiOutput { html: Some(ai::text_to_email_html(&body)), text: body, subject: subj, ..Default::default() })
             }
             AiTask::Rewrite { account_id, text, mode, instructions: custom } => {
                 if text.trim().is_empty() {
@@ -2262,7 +2339,17 @@ impl Engine {
                 );
                 let turn = client.stream(&system, &[ai::Message::user(text)], &[], None, on_text).await?;
                 let out = ai::strip_fences(&usable_text(&turn, false)?);
-                Ok(AiOutput { html: Some(ai::text_to_email_html(&out)), text: out, subject: None, draft: None })
+                Ok(AiOutput { html: Some(ai::text_to_email_html(&out)), text: out, ..Default::default() })
+            }
+            AiTask::Layout { layout: l, variation, instructions: wish } => {
+                let colors = l.logo.as_ref().map(|g| g.colors.clone()).unwrap_or_default();
+                let base = layout::suggest_style(&colors, variation);
+                let system = format!("{}\n\n{}", ai::base_system(&self.owner(l.account_id.as_deref()), &instructions), layout::ai_prompt());
+                let turn = client.stream(&system, &[ai::Message::user(layout::ai_request(&l, variation, &wish))], &[], None, on_text).await?;
+                let text = usable_text(&turn, false)?;
+                // Only the choices are used, never any markup; what the model got wrong falls back to the suggestion.
+                let style = layout::parse_ai_style(&text, &base);
+                Ok(AiOutput { text, style: Some(style), ..Default::default() })
             }
         }
     }
@@ -2717,7 +2804,7 @@ impl Engine {
             let mut db = self.inner.store.db();
             let tx = db.transaction()?;
             tx.execute_batch(
-                "DELETE FROM cal_accounts; DELETE FROM signatures; DELETE FROM templates; DELETE FROM sender_rules;
+                "DELETE FROM cal_accounts; DELETE FROM signatures; DELETE FROM layouts; DELETE FROM templates; DELETE FROM sender_rules;
                  DELETE FROM snoozes; DELETE FROM accounts; DELETE FROM cloud_sections;",
             )?;
             for key in [crate::calendar::OUTLOOK_OFF, UI_PREFS, crate::cloud::CAL_OVERRIDES] {
@@ -2814,7 +2901,8 @@ impl Engine {
         if let Some(mailto) = u.mailto {
             let m = compose::parse_mailto(&mailto).context("bad unsubscribe address")?;
             let account = self.default_account(Some(&meta.account_id))?;
-            let mut d = self.blank_draft(&account)?;
+            let mut d = self.blank_draft(&account, true)?;
+            d.layout_id = None; // a plain request, not branded mail
             d.to = m.to.iter().filter_map(|a| compose::parse_address(a)).collect();
             d.bcc.clear();
             d.subject = if m.subject.is_empty() { "Unsubscribe".into() } else { m.subject };
@@ -3513,7 +3601,7 @@ async fn deliver_inner(inner: &Arc<Inner>, item: &OutboxItem) -> Result<Delivere
     };
     let from = EmailAddress::new(account.display_name.clone(), account.email.clone());
     let (raw, recipients) = compose::build_message(
-        &item.draft,
+        &wrapped(&inner.store, &item.draft),
         &compose::OutgoingMeta { from, message_id: message_id.clone(), in_reply_to: in_reply_to.as_deref(), references: &references },
     )?;
     let send = |login: Login| {
@@ -3568,6 +3656,21 @@ fn after_send(inner: &Arc<Inner>, item: &OutboxItem, sent: Delivered) {
     }
     let _ = engine.delete_draft(&item.draft.id);
     engine.sync_now(Some(&account.id));
+}
+
+/// The draft as it goes out: the body inside its branded layout, when it has one
+/// that still exists and fits the sending account. Drafts saved to the server
+/// stay unwrapped so they remain editable.
+fn wrapped<'a>(store: &Store, draft: &'a Draft) -> std::borrow::Cow<'a, Draft> {
+    let found = draft.layout_id.as_deref().and_then(|id| store.layout(id).ok().flatten());
+    match found.filter(|l| l.account_id.is_none() || l.account_id.as_deref() == Some(draft.account_id.as_str())) {
+        Some(l) => {
+            let mut d = draft.clone();
+            d.html_body = layout::apply_layout(&d.html_body, &l);
+            std::borrow::Cow::Owned(d)
+        }
+        None => std::borrow::Cow::Borrowed(draft),
+    }
 }
 
 /// Model output for writing tasks: refuse empty or (unless `partial_ok`) cut-off answers

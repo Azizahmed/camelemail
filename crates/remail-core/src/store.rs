@@ -170,6 +170,17 @@ CREATE TABLE IF NOT EXISTS signatures (
   updated_at INTEGER NOT NULL
 );
 
+-- Branded email headers and footers. The details live in `json` (a
+-- BrandedLayout); the columns are what lookups and uniqueness need.
+CREATE TABLE IF NOT EXISTS layouts (
+  id TEXT PRIMARY KEY,
+  account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  json TEXT NOT NULL,
+  is_default INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS templates (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -730,7 +741,7 @@ impl Store {
         let tx = db.transaction()?;
         // Children point at the old id until the parent row moves too.
         tx.execute_batch("PRAGMA defer_foreign_keys = ON;")?;
-        for table in ["folders", "folder_state", "messages", "snoozes", "drafts", "outbox", "op_queue", "autoclean_exempt", "signatures"] {
+        for table in ["folders", "folder_state", "messages", "snoozes", "drafts", "outbox", "op_queue", "autoclean_exempt", "signatures", "layouts"] {
             tx.execute(&format!("UPDATE {table} SET account_id = ?1 WHERE account_id = ?2"), params![new, old])?;
         }
         tx.execute("UPDATE cal_accounts SET mail_account_id = ?1 WHERE mail_account_id = ?2", params![new, old])?;
@@ -2358,6 +2369,86 @@ impl Store {
             .max_by_key(|s| s.account_id.is_some()))
     }
 
+    // ------------------------------------------------------------------
+    // Branded layouts
+    // ------------------------------------------------------------------
+
+    pub fn layouts(&self) -> Result<Vec<BrandedLayout>> {
+        let db = self.db();
+        let mut stmt = db.prepare("SELECT id, account_id, name, json, is_default, updated_at FROM layouts ORDER BY name COLLATE NOCASE")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?, r.get::<_, bool>(4)?, r.get::<_, i64>(5)?))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (id, account_id, name, json, is_default, updated_at) = row?;
+            // The columns win over whatever the JSON says about them.
+            match serde_json::from_str::<BrandedLayout>(&json) {
+                Ok(l) => out.push(BrandedLayout { id, account_id, name, is_default, updated_at, ..l }),
+                Err(e) => tracing::warn!(layout = id, "skipping an unreadable layout: {e}"),
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn layout(&self, id: &str) -> Result<Option<BrandedLayout>> {
+        Ok(self.layouts()?.into_iter().find(|l| l.id == id))
+    }
+
+    pub fn save_layout(&self, l: &BrandedLayout) -> Result<()> {
+        let mut db = self.db();
+        let tx = db.transaction()?;
+        let dup: Option<String> = tx
+            .query_row(
+                "SELECT id FROM layouts WHERE COALESCE(account_id,'') = COALESCE(?,'')
+                   AND lower(trim(name)) = lower(trim(?)) AND id != ?",
+                params![l.account_id, l.name, l.id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if dup.is_some() {
+            anyhow::bail!("This account already has a layout with that name");
+        }
+        if l.is_default {
+            tx.execute("UPDATE layouts SET is_default = 0 WHERE COALESCE(account_id,'') = COALESCE(?,'')", params![l.account_id])?;
+        }
+        tx.execute(
+            "INSERT INTO layouts(id, account_id, name, json, is_default, updated_at) VALUES(?,?,?,?,?,?)
+             ON CONFLICT(id) DO UPDATE SET account_id = excluded.account_id, name = excluded.name, json = excluded.json,
+               is_default = excluded.is_default, updated_at = excluded.updated_at",
+            params![l.id, l.account_id, l.name.trim(), serde_json::to_string(l)?, l.is_default, now_ms()],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// A layout that came from another device: stored as it is, without the
+    /// name and default checks of `save_layout`, so a clash between two devices'
+    /// edits can't stop the sync (two defaults resolve to the account's own).
+    pub fn put_synced_layout(&self, l: &BrandedLayout) -> Result<()> {
+        self.db().execute(
+            "INSERT INTO layouts(id, account_id, name, json, is_default, updated_at) VALUES(?,?,?,?,?,?)
+             ON CONFLICT(id) DO UPDATE SET account_id = excluded.account_id, name = excluded.name, json = excluded.json,
+               is_default = excluded.is_default, updated_at = excluded.updated_at",
+            params![l.id, l.account_id, l.name.trim(), serde_json::to_string(l)?, l.is_default, now_ms()],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_layout(&self, id: &str) -> Result<()> {
+        self.db().execute("DELETE FROM layouts WHERE id = ?", [id])?;
+        Ok(())
+    }
+
+    /// Default layout for an account (falls back to a default for any account).
+    pub fn default_layout(&self, account_id: &str) -> Result<Option<BrandedLayout>> {
+        Ok(self
+            .layouts()?
+            .into_iter()
+            .filter(|l| l.is_default && (l.account_id.is_none() || l.account_id.as_deref() == Some(account_id)))
+            .max_by_key(|l| l.account_id.is_some()))
+    }
+
     pub fn templates(&self) -> Result<Vec<Template>> {
         let db = self.db();
         let mut stmt = db.prepare("SELECT id, name, subject, html, updated_at FROM templates ORDER BY name COLLATE NOCASE")?;
@@ -3486,6 +3577,71 @@ pub(crate) mod tests {
         assert_eq!(unread[labels::INBOX], 11);
         assert_eq!(unread["Work"], 11);
         assert_eq!(unread[labels::ARCHIVE], 1);
+    }
+
+    fn layout(id: &str, name: &str, account_id: Option<&str>, is_default: bool) -> BrandedLayout {
+        BrandedLayout {
+            id: id.into(),
+            account_id: account_id.map(String::from),
+            name: name.into(),
+            org_name: "Acme".into(),
+            about: String::new(),
+            button: None,
+            logo: None,
+            sender_name: "Dana".into(),
+            position: "Sales".into(),
+            phone: "+1 555 0100".into(),
+            email: "dana@acme.test".into(),
+            style: LayoutStyle::default(),
+            use_on_replies: true,
+            is_default,
+            updated_at: 0,
+        }
+    }
+
+    #[test]
+    fn layouts_default_per_account_with_unique_names() {
+        let store = Store::open_in_memory().unwrap();
+        let a = account(&store, "a@example.com");
+        let b = account(&store, "b@example.com");
+        store.save_layout(&layout("any", "Everyone", None, true)).unwrap();
+        store.save_layout(&layout("for-b", "Mine", Some(&b.id), true)).unwrap();
+        // The account's own default wins over the one for any account.
+        assert_eq!(store.default_layout(&a.id).unwrap().map(|l| l.id), Some("any".into()));
+        assert_eq!(store.default_layout(&b.id).unwrap().map(|l| l.id), Some("for-b".into()));
+        // A second default for the same scope takes over.
+        store.save_layout(&layout("any2", "Everyone 2", None, true)).unwrap();
+        let flags: Vec<(String, bool)> = store.layouts().unwrap().into_iter().map(|l| (l.id, l.is_default)).collect();
+        assert!(flags.contains(&("any".into(), false)) && flags.contains(&("any2".into(), true)) && flags.contains(&("for-b".into(), true)), "{flags:?}");
+        // Names are unique per account, ignoring case; saving again by id edits.
+        assert!(store.save_layout(&layout("x", " everyone 2 ", None, false)).is_err());
+        let mut edited = layout("any2", "Everyone 2", None, true);
+        edited.org_name = "Acme Ltd".into();
+        store.save_layout(&edited).unwrap();
+        assert_eq!(store.layout("any2").unwrap().unwrap().org_name, "Acme Ltd");
+        // Removing an account removes its layouts.
+        store.db().execute("DELETE FROM accounts WHERE id = ?", [&b.id]).unwrap();
+        assert!(store.layout("for-b").unwrap().is_none());
+        store.delete_layout("any").unwrap();
+        assert_eq!(store.layouts().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_database_from_before_layouts_gets_the_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old.db");
+        {
+            let store = Store::open(&path).unwrap();
+            account(&store, "me@example.com");
+            store.db().execute_batch("DROP TABLE layouts;").unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        assert!(store.layouts().unwrap().is_empty());
+        store.save_layout(&layout("l", "L", None, true)).unwrap();
+        drop(store);
+        // The version number didn't move, so an older build still opens it.
+        let v: i64 = Connection::open(&path).unwrap().query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, SCHEMA_VERSION);
     }
 
     #[test]

@@ -321,6 +321,81 @@ async fn end_to_end() {
     assert_eq!(engine.accounts().unwrap().len(), 1);
 }
 
+/// A message sent through a branded layout arrives with the header, the footer
+/// and the logo as an inline picture, and the sent copy keeps them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn branded_layout_end_to_end() {
+    if !enabled() {
+        eprintln!("skipping: set REMAIL_IT=1 with a GreenMail server running");
+        return;
+    }
+    let sink = Arc::new(Collector::default());
+    let engine = Engine::with_store(Store::open_in_memory().unwrap(), Arc::new(MemoryStore::default()), sink.clone()).unwrap();
+    engine.set_settings(&AppSettings { undo_send_seconds: 0, ..Default::default() }).unwrap();
+    let carol = engine.add_account(account("carol", "carolpw", false)).await.unwrap();
+    let dave = engine.add_account(account("dave", "davepw", false)).await.unwrap();
+
+    // 1x1 transparent PNG.
+    let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    let layout = engine
+        .save_layout(BrandedLayout {
+            id: String::new(),
+            account_id: Some(carol.id.clone()),
+            name: "Work".into(),
+            org_name: "Acme & Sons".into(),
+            about: "Family bakers since 1990.".into(),
+            button: Some(LayoutButton { label: "Visit our shop".into(), url: "https://acme.test/shop".into() }),
+            logo: Some(LayoutLogo { data: png.into(), mime: "image/png".into(), width: 120, height: 40, ..Default::default() }),
+            sender_name: "Carol Hart".into(),
+            position: "Head of Sales".into(),
+            phone: "+1 555 010 2030".into(),
+            email: addr("carol"),
+            style: LayoutStyle::default(),
+            use_on_replies: false,
+            is_default: true,
+            updated_at: 0,
+        })
+        .unwrap();
+
+    // New mail takes the default layout; the composer's body stays plain.
+    let mut d = engine.new_draft(Some(&carol.id)).unwrap();
+    assert_eq!(d.layout_id.as_deref(), Some(layout.id.as_str()));
+    d.to = vec![EmailAddress::new("", &addr("dave"))];
+    d.subject = "Quarterly numbers".into();
+    d.html_body = "<p>The figures are attached below.</p>".into();
+    send_and_wait(&engine, &sink, d).await;
+
+    engine.sync_and_wait(&dave.id).await.unwrap();
+    let threads = inbox(&engine, &dave.id);
+    assert_eq!(threads.len(), 1);
+    let detail = engine.get_thread(&dave.id, &threads[0].thread_id).await.unwrap();
+    let m = &detail.messages[0];
+    let html = m.html.as_deref().unwrap();
+    for part in ["Acme &amp; Sons", "Family bakers since 1990.", "Visit our shop", "https://acme.test/shop", "The figures are attached below.", "Carol Hart", "Head of Sales", "tel:+15550102030", &format!("mailto:{}", addr("carol"))] {
+        assert!(html.contains(part), "{part} missing from {html}");
+    }
+    // The header comes before the message and the footer after it. (The hidden preview line at the
+    // very top repeats the message's first words, so the last one counts; the logo's alt text names
+    // the company in the header and again in the footer, so the first one counts.)
+    let (header, body, footer) = (html.find("Acme &amp; Sons").unwrap(), html.rfind("The figures are").unwrap(), html.find("Carol Hart").unwrap());
+    assert!(header < html.find("Family bakers").unwrap() && html.find("Family bakers").unwrap() < html.find("Visit our shop").unwrap(), "brief, then button");
+    assert!(html.find("Visit our shop").unwrap() < body && body < footer, "header, message, footer");
+    assert!(html.find("The figures are").unwrap() < header, "the preview line comes first");
+    // The logo travelled as a picture inside the message (the reader shows its `cid:` part
+    // as a data: image), not as a link out.
+    // (The only web address is the header's button.)
+    assert_eq!(html.matches("data:image/png;base64,").count(), 2, "the logo in the header and in the footer: {html}");
+    assert_eq!(html.matches("https://").count(), 1, "{html}");
+    assert!(m.text.as_deref().unwrap_or_default().contains("Head of Sales"), "text part: {:?}", m.text);
+
+    // The copy in Carol's Sent folder has the same layout.
+    engine.sync_and_wait(&carol.id).await.unwrap();
+    let sent = list(&engine, &carol.id, labels::SENT);
+    assert_eq!(sent.len(), 1);
+    let sent_detail = engine.get_thread(&carol.id, &sent[0].thread_id).await.unwrap();
+    assert!(sent_detail.messages[0].html.as_deref().unwrap().contains("Head of Sales"));
+}
+
 async fn send_raw_smtp(from: &str, to: &str, raw: &str) {
     remail_core::smtp::send(
         &ServerConfig { host: std::env::var("REMAIL_IT_HOST").unwrap_or_else(|_| "127.0.0.1".into()), port: 3025, security: Security::None },

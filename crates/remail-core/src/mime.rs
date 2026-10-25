@@ -1,6 +1,8 @@
 //! Parsing raw RFC 5322 messages into Remail's models.
 
 use mail_parser::{Address, HeaderValue, MessageParser, MimeHeaders};
+use once_cell::sync::Lazy;
+use regex::Regex;
 
 use crate::classify::{self, Category};
 use crate::model::{AttachmentMeta, EmailAddress, Unsubscribe};
@@ -224,6 +226,22 @@ pub fn truncate_chars(s: &str, max: usize) -> String {
 /// alternative of outgoing mail).
 pub fn html_to_text(html: &str) -> String {
     html2text::from_read(html.as_bytes(), 100_000).unwrap_or_else(|_| strip_tags(html))
+}
+
+/// The text/plain alternative of outgoing mail. Layout tables (`role="presentation"`,
+/// as in branded layouts) hold no data, so their cells come out one per line without
+/// the borders data tables get.
+pub fn outgoing_text(html: &str) -> String {
+    if !html.contains("role=\"presentation\"") {
+        return html_to_text(html);
+    }
+    // The hidden preview line and the logo's alt text are for HTML readers; here the logo's
+    // name is the text next to it, and the message itself comes first anyway.
+    static HTML_ONLY: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(&format!(r"(?is)<div[^>]*{}[^>]*>.*?</div>|<img[^>]*{}[^>]*>", crate::layout::PREHEADER_MARK, crate::layout::LOGO_MARK)).unwrap()
+    });
+    let html = HTML_ONLY.replace_all(html, "");
+    html2text::config::plain().raw_mode(true).string_from_read(html.as_bytes(), 100_000).unwrap_or_else(|_| strip_tags(&html))
 }
 
 fn strip_tags(html: &str) -> String {

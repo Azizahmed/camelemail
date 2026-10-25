@@ -3,7 +3,7 @@
   // per settings page. The desktop-only sections (Connections, Shortcuts) are
   // left out.
   import {
-    ArrowLeft, Bell, CalendarDays, Check, Clock, Eraser, FileText, Info, LogOut, Mailbox, MoveHorizontal, PenLine, Pin,
+    ArrowLeft, Bell, CalendarDays, Check, Clock, Eraser, FileText, Info, LogOut, Mailbox, MoveHorizontal, PenLine, LayoutTemplate, Pin,
     ShieldCheck, SlidersHorizontal, Sparkles, X,
   } from "@lucide/svelte";
   import { onMount } from "svelte";
@@ -41,6 +41,7 @@
     { id: "autoclean", icon: Eraser, title: t("mset.autoclean") },
     { id: "calendar", icon: CalendarDays, title: t("mset.calendar") },
     { id: "signatures", icon: PenLine, title: t("mset.signatures") },
+    { id: "layouts", icon: LayoutTemplate, title: t("layout.title") },
     { id: "templates", icon: FileText, title: t("mset.templates") },
     { id: "snooze", icon: Clock, title: t("mset.snooze") },
     { id: "ai", icon: Sparkles, title: t("settings.ai") },

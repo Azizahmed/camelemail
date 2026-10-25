@@ -102,6 +102,12 @@ handlers![
     templates,
     save_template,
     delete_template,
+    layouts,
+    save_layout,
+    delete_layout,
+    layout_preview,
+    layout_suggest,
+    layout_preset,
     newsletter_senders,
     unsubscribe,
     suggest_contacts,
@@ -585,6 +591,39 @@ async fn save_signature(state: State<'_, AppState>, signature: Signature) -> R<S
 #[tauri::command]
 async fn delete_signature(state: State<'_, AppState>, id: String) -> R<()> {
     blocking(&state, move |e| e.delete_signature(&id)).await
+}
+
+#[tauri::command]
+async fn layouts(state: State<'_, AppState>) -> R<Vec<BrandedLayout>> {
+    blocking(&state, move |e| e.layouts()).await
+}
+
+#[tauri::command]
+async fn save_layout(state: State<'_, AppState>, layout: BrandedLayout) -> R<BrandedLayout> {
+    blocking(&state, move |e| e.save_layout(layout)).await
+}
+
+#[tauri::command]
+async fn delete_layout(state: State<'_, AppState>, id: String) -> R<()> {
+    blocking(&state, move |e| e.delete_layout(&id)).await
+}
+
+/// The header and footer of a layout as it stands in the form.
+#[tauri::command]
+async fn layout_preview(state: State<'_, AppState>, layout: BrandedLayout, sample_html: String) -> R<LayoutPreview> {
+    blocking(&state, move |e| Ok(e.layout_preview(&layout, &sample_html))).await
+}
+
+/// A design from the logo's colours, for when AI is off (or as a starting point).
+#[tauri::command]
+async fn layout_suggest(state: State<'_, AppState>, colors: Vec<String>, variation: u32) -> R<LayoutStyle> {
+    blocking(&state, move |e| Ok(e.layout_suggest(&colors, variation))).await
+}
+
+/// One of the ready-made templates, in the logo's colours.
+#[tauri::command]
+async fn layout_preset(state: State<'_, AppState>, id: String, colors: Vec<String>) -> R<LayoutStyle> {
+    blocking(&state, move |e| Ok(e.layout_preset(&id, &colors))).await
 }
 
 #[tauri::command]

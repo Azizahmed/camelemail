@@ -23,6 +23,7 @@
     autoclean: "mset.autoclean",
     calendar: "mset.calendar",
     signatures: "mset.signatures",
+    layouts: "layout.title",
     templates: "mset.templates",
     snooze: "mset.snooze",
     ai: "settings.ai",
@@ -32,7 +33,7 @@
   // `admin:<part>` opens one part of Admin.
   const base = $derived(section.split(":")[0]);
   // Translated sections follow the language; the rest are still English, so they read left to right.
-  const TRANSLATED = ["account", "accounts", "ai", "admin"];
+  const TRANSLATED = ["account", "accounts", "ai", "admin", "layouts"];
 </script>
 
 <div class="m-screen">

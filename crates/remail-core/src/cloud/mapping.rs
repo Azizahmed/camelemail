@@ -76,12 +76,13 @@ pub fn apply_order(section: &str) -> u8 {
         sections::ACCOUNTS => 1,
         sections::CALENDARS => 2,
         sections::SIGNATURES => 3,
-        sections::TEMPLATES => 4,
-        sections::SENDER_RULES => 5,
-        sections::SNOOZES => 6,
-        sections::PREFS => 7,
-        sections::SHORTCUTS => 8,
-        _ => 9,
+        sections::LAYOUTS => 4,
+        sections::TEMPLATES => 5,
+        sections::SENDER_RULES => 6,
+        sections::SNOOZES => 7,
+        sections::PREFS => 8,
+        sections::SHORTCUTS => 9,
+        _ => 10,
     }
 }
 
@@ -157,6 +158,7 @@ pub fn collect(engine: &Engine, section: &str) -> Result<Option<Local>> {
         sections::ACCOUNTS => collect_accounts(engine)?,
         sections::CALENDARS => collect_calendars(engine)?,
         sections::SIGNATURES => collect_signatures(engine)?,
+        sections::LAYOUTS => collect_layouts(engine)?,
         sections::TEMPLATES => collect_templates(engine)?,
         sections::SENDER_RULES => collect_sender_rules(engine)?,
         sections::SNOOZES => collect_snoozes(engine)?,
@@ -307,6 +309,30 @@ fn collect_signatures(engine: &Engine) -> Result<Local> {
         .collect())
 }
 
+fn collect_layouts(engine: &Engine) -> Result<Local> {
+    Ok(engine
+        .layouts()?
+        .into_iter()
+        .map(|l| {
+            let mut r = LocalRecord::default();
+            r.fields.insert("accountId".into(), json!(l.account_id));
+            r.fields.insert("name".into(), json!(l.name));
+            r.fields.insert("orgName".into(), json!(l.org_name));
+            r.fields.insert("about".into(), json!(l.about));
+            r.fields.insert("logo".into(), json!(l.logo));
+            r.fields.insert("button".into(), json!(l.button));
+            r.fields.insert("senderName".into(), json!(l.sender_name));
+            r.fields.insert("position".into(), json!(l.position));
+            r.fields.insert("phone".into(), json!(l.phone));
+            r.fields.insert("email".into(), json!(l.email));
+            r.fields.insert("style".into(), json!(l.style));
+            r.fields.insert("useOnReplies".into(), json!(l.use_on_replies));
+            r.fields.insert("isDefault".into(), json!(l.is_default));
+            (l.id, r)
+        })
+        .collect())
+}
+
 fn collect_templates(engine: &Engine) -> Result<Local> {
     Ok(engine
         .templates()?
@@ -430,6 +456,7 @@ pub fn apply(engine: &Engine, section: &str, doc: &SectionDoc, only: Option<&BTr
         sections::ACCOUNTS => apply_accounts(engine, doc, only, reset),
         sections::CALENDARS => apply_calendars(engine, doc, only, reset),
         sections::SIGNATURES => apply_signatures(engine, doc, only, reset),
+        sections::LAYOUTS => apply_layouts(engine, doc, only, reset),
         sections::TEMPLATES => apply_templates(engine, doc, only, reset),
         sections::SENDER_RULES => apply_sender_rules(engine, doc, only, reset),
         sections::SNOOZES => apply_snoozes(engine, doc, reset),
@@ -756,6 +783,59 @@ fn apply_signatures(engine: &Engine, doc: &SectionDoc, only: Option<&BTreeSet<St
     if reset {
         for id in local.keys().filter(|id| doc.record(id).is_none()) {
             store.delete_signature(id)?;
+        }
+    }
+    Ok(())
+}
+
+fn apply_layouts(engine: &Engine, doc: &SectionDoc, only: Option<&BTreeSet<String>>, reset: bool) -> Result<()> {
+    let store = engine.store();
+    let local: HashMap<String, BrandedLayout> = store.layouts()?.into_iter().map(|l| (l.id.clone(), l)).collect();
+    for (id, rec) in &doc.records {
+        if !wanted(only, id) {
+            continue;
+        }
+        if rec.is_deleted() {
+            if local.contains_key(id) {
+                store.delete_layout(id)?;
+            }
+            continue;
+        }
+        let want = BrandedLayout {
+            id: id.clone(),
+            account_id: text(rec, "accountId"),
+            name: text(rec, "name").unwrap_or_default(),
+            org_name: text(rec, "orgName").unwrap_or_default(),
+            about: text(rec, "about").unwrap_or_default(),
+            logo: rec.get("logo").and_then(|v| serde_json::from_value(v.clone()).ok()),
+            button: rec.get("button").and_then(|v| serde_json::from_value(v.clone()).ok()),
+            sender_name: text(rec, "senderName").unwrap_or_default(),
+            position: text(rec, "position").unwrap_or_default(),
+            phone: text(rec, "phone").unwrap_or_default(),
+            email: text(rec, "email").unwrap_or_default(),
+            style: rec.get("style").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default(),
+            use_on_replies: rec.get("useOnReplies").and_then(Value::as_bool).unwrap_or(false),
+            is_default: rec.get("isDefault").and_then(Value::as_bool).unwrap_or(false),
+            updated_at: now_ms(),
+        };
+        if let Some(acc) = &want.account_id {
+            if store.account(acc)?.is_none() {
+                continue; // its account hasn't arrived (yet)
+            }
+        }
+        // Another device wrote this: it's only checked as far as it must be to be safe to send.
+        if let Err(e) = crate::layout::validate(&want) {
+            tracing::warn!(layout = id, "ignoring a layout from the server: {e}");
+            continue;
+        }
+        let same = local.get(id).is_some_and(|l| BrandedLayout { updated_at: 0, ..l.clone() } == BrandedLayout { updated_at: 0, ..want.clone() });
+        if !same {
+            store.put_synced_layout(&want)?;
+        }
+    }
+    if reset {
+        for id in local.keys().filter(|id| doc.record(id).is_none()) {
+            store.delete_layout(id)?;
         }
     }
     Ok(())

@@ -132,6 +132,9 @@ fn setup_view(d: &Device) -> serde_json::Value {
     view_of(&d.engine, &d.secrets)
 }
 
+/// 1x1 transparent PNG.
+const LOGO_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
 fn view_of(e: &Engine, secrets: &MemoryStore) -> serde_json::Value {
     let accounts: Vec<serde_json::Value> = e
         .accounts()
@@ -157,6 +160,7 @@ fn view_of(e: &Engine, secrets: &MemoryStore) -> serde_json::Value {
     serde_json::json!({
         "accounts": accounts,
         "signatures": e.signatures().unwrap(),
+        "layouts": e.layouts().unwrap().into_iter().map(|l| serde_json::to_value(BrandedLayout { updated_at: 0, ..l }).unwrap()).collect::<Vec<_>>(),
         "templates": e.templates().unwrap().into_iter().map(|t| (t.id, t.name, t.subject, t.html)).collect::<Vec<_>>(),
         "senders": e.sender_rules().unwrap().into_iter().map(|r| (r.email, r.category)).collect::<Vec<_>>(),
         "prefs": [s.theme, s.undo_send_seconds.to_string(), s.language, s.auto_clean.enabled.to_string(),
@@ -547,6 +551,40 @@ async fn google_sign_in_stays_on_the_device() {
     assert!(m.lock().unwrap().google_refreshes.is_empty());
 }
 
+/// Two devices that each made a layout with the same name must not stop the sync.
+#[tokio::test(flavor = "multi_thread")]
+async fn same_named_layouts_from_two_devices_both_apply() {
+    use remail_core::cloud::mapping;
+    use serde_json::json;
+    let e = Engine::with_store_locked(Store::open_in_memory().unwrap(), Arc::new(MemoryStore::default()), Arc::new(Quiet)).unwrap();
+    let mine = BrandedLayout {
+        id: String::new(),
+        account_id: None,
+        name: "Work".into(),
+        org_name: "Acme".into(),
+        about: String::new(),
+        button: None,
+        logo: None,
+        sender_name: "Dana".into(),
+        position: String::new(),
+        phone: String::new(),
+        email: "dana@acme.test".into(),
+        style: remail_core::layout::suggest_style(&[], 0),
+        use_on_replies: false,
+        is_default: true,
+        updated_at: 0,
+    };
+    e.save_layout(mine).unwrap();
+    let mut doc = SectionDoc::default();
+    let at = Stamp::new(5, "dev_b");
+    let rec = doc.record_mut("lay_theirs");
+    for (k, v) in [("name", json!("work")), ("orgName", json!("Acme Ltd")), ("senderName", json!("Dana")), ("position", json!("")), ("phone", json!("")), ("email", json!("dana@acme.test")), ("useOnReplies", json!(false)), ("isDefault", json!(true))] {
+        rec.set(k, v, &at);
+    }
+    mapping::apply(&e, "layouts", &doc, None, false).unwrap();
+    assert_eq!(e.layouts().unwrap().len(), 2);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn mapping_round_trip_without_server() {
     use remail_core::cloud::mapping;
@@ -558,6 +596,24 @@ async fn mapping_round_trip_without_server() {
     a.update_account_prefs(&acc.id, Some("Mine".into()), Some("#abcdef".into()), None, Some(vec!["b@x.com".into(), "a@x.com".into()])).unwrap();
     a.save_signature(Signature { id: String::new(), account_id: Some(acc.id.clone()), name: "S".into(), html: "<b>s</b>".into(), is_default: true }).unwrap();
     a.save_template(Template { id: String::new(), name: "T".into(), subject: "s".into(), html: "h".into(), updated_at: 0 }).unwrap();
+    a.save_layout(BrandedLayout {
+        id: String::new(),
+        account_id: Some(acc.id.clone()),
+        name: "Work".into(),
+        org_name: "شركة النور".into(),
+        about: "مخبز عائلي منذ ١٩٩٠.".into(),
+        button: Some(LayoutButton { label: "تصفّح المتجر".into(), url: "https://noor.test/shop".into() }),
+        logo: Some(LayoutLogo { data: LOGO_PNG.into(), mime: "image/png".into(), width: 90, height: 30, alt: "logo".into(), url: None, colors: vec!["#d2691e".into()] }),
+        sender_name: "سارة أحمد".into(),
+        position: "Sales".into(),
+        phone: "+966 50 123 4567".into(),
+        email: "sara@noor.test".into(),
+        style: remail_core::layout::suggest_style(&["#d2691e".into()], 2),
+        use_on_replies: true,
+        is_default: true,
+        updated_at: 0,
+    })
+    .unwrap();
     a.set_sender_category("x@y.com", Some("primary")).unwrap();
     let mut s = a.settings();
     s.theme = "dark".into();

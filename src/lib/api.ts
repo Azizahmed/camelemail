@@ -46,6 +46,9 @@ import type {
   ReplyKind,
   ServerConfig,
   Signature,
+  BrandedLayout,
+  LayoutPreview,
+  LayoutStyle,
   Template,
   ThreadAction,
   ThreadDetail,
@@ -136,6 +139,15 @@ export const api = {
   signatures: () => invoke<Signature[]>("signatures"),
   saveSignature: (signature: Signature) => invokeInOrder<Signature>("save_signature", { signature }, "signatures"),
   deleteSignature: (id: string) => invokeInOrder<void>("delete_signature", { id }, "signatures"),
+  layouts: () => invoke<BrandedLayout[]>("layouts"),
+  saveLayout: (layout: BrandedLayout) => invokeInOrder<BrandedLayout>("save_layout", { layout }, "layouts"),
+  deleteLayout: (id: string) => invokeInOrder<void>("delete_layout", { id }, "layouts"),
+  /** The rendered header and footer of a layout as it stands in a form. */
+  layoutPreview: (layout: BrandedLayout, sampleHtml = "") => invoke<LayoutPreview>("layout_preview", { layout, sampleHtml }),
+  /** A design from the logo's colours, without AI. */
+  layoutSuggest: (colors: string[], variation: number) => invoke<LayoutStyle>("layout_suggest", { colors, variation }),
+  /** One of the ready-made templates, in the logo's colours. */
+  layoutPreset: (id: string, colors: string[]) => invoke<LayoutStyle>("layout_preset", { id, colors }),
   templates: () => invoke<Template[]>("templates"),
   saveTemplate: (template: Template) => invokeInOrder<Template>("save_template", { template }, "templates"),
   deleteTemplate: (id: string) => invokeInOrder<void>("delete_template", { id }, "templates"),

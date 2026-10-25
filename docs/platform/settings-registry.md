@@ -88,6 +88,7 @@ MCP is desktop-only and machine-specific, so it stays on the device. The org can
 | *(new)* per-account `provider` | user | `accounts` | `google\|microsoft\|imap`. The server checks it against the allow-list. |
 | *(new)* per-account folder prefs (hidden folders) | user | `accounts[].hiddenFolders` (set) | Taken from localStorage `sidebarHidden` |
 | `signatures` (`sig_…`: account, name, html, isDefault) | user | `signatures` | — |
+| `layouts` (`lay_…`: account, name, orgName, about, logo, button, senderName, position, phone, email, style, useOnReplies, isDefault) | user | `layouts` | Branded email header and footer. `about` is a short company description (≤ 240 characters) and `button` is `{label, url}` (`https://` or `mailto:`), both shown in the header. `logo` is `{data, mime, width, height, alt, url, colors}` (picture ≤ 24 KB, base64 inside the record); it appears in the header and, by `style.footerLogo`, in the footer. `style` holds design choices only, never markup (incl. `template`, the ready-made template it came from). At most 6 layouts, 220 KB together, so the section stays under the 256 KB limit. A server older than the app answers 404 for the section: the layouts stay on the device until it is updated. |
 | `templates` (`tmpl_…`: name, subject, html) | user | `templates` | — |
 | `sender_rules` (email → category) | user | `sender_rules` | Record per email |
 | `autoclean_exempt` (account, thread) | device | — | Thread IDs are local |

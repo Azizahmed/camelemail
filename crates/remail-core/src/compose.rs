@@ -373,7 +373,7 @@ pub fn build_message(draft: &Draft, meta: &OutgoingMeta<'_>) -> Result<(Vec<u8>,
     // Pictures in the body go out as inline (`cid:`) parts: many clients drop `data:` images.
     let (full_body, inline) = inline_images(&full_body, &meta.message_id);
     let html = wrap_html(&full_body);
-    let text = crate::mime::html_to_text(&full_body);
+    let text = crate::mime::outgoing_text(&full_body);
     let alternative = MultiPart::alternative()
         .singlepart(SinglePart::builder().header(ContentType::TEXT_PLAIN).body(text))
         .singlepart(SinglePart::builder().header(ContentType::TEXT_HTML).body(html));
@@ -582,6 +582,7 @@ mod tests {
             thread_id: None,
             reply_kind: None,
             signature_id: None,
+            layout_id: None,
             updated_at: 0,
         };
         let refs = vec!["root@x.test".to_string(), "orig@x.test".to_string()];
@@ -632,6 +633,7 @@ mod tests {
             thread_id: None,
             reply_kind: None,
             signature_id: None,
+            layout_id: None,
             updated_at: 0,
         };
         let meta = OutgoingMeta { from: EmailAddress::new("Me", "me@x.test"), message_id: "m@x.test".into(), in_reply_to: None, references: &[] };
@@ -643,5 +645,71 @@ mod tests {
         let parsed = crate::mime::parse(&bytes).unwrap();
         assert_eq!(parsed.attachments.iter().filter(|a| a.inline).count(), 1);
         assert!(parsed.attachments.iter().all(|a| a.inline));
+    }
+
+    #[test]
+    fn branded_layout_goes_out_with_inline_logo_and_readable_text() {
+        use crate::model::{BrandedLayout, LayoutLogo, LayoutStyle};
+        // 1x1 transparent PNG.
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+        let l = BrandedLayout {
+            id: "lay_1".into(),
+            account_id: None,
+            name: "Work".into(),
+            org_name: "Acme Ltd".into(),
+            about: String::new(),
+            button: None,
+            logo: Some(LayoutLogo { data: png.into(), mime: "image/png".into(), width: 120, height: 40, ..Default::default() }),
+            sender_name: "Dana Lee".into(),
+            position: "Head of Sales".into(),
+            phone: "+1 555 010 2030".into(),
+            email: "dana@acme.test".into(),
+            style: LayoutStyle::default(),
+            use_on_replies: false,
+            is_default: true,
+            updated_at: 0,
+        };
+        let draft = Draft {
+            id: "d".into(),
+            account_id: "acc".into(),
+            to: vec![parse_address("bob@x.test").unwrap()],
+            cc: vec![],
+            bcc: vec![],
+            subject: "Hello".into(),
+            html_body: crate::layout::apply_layout("<p>See you Monday.</p>", &l),
+            quoted_html: String::new(),
+            attachments: vec![],
+            reply_to_message_id: None,
+            thread_id: None,
+            reply_kind: None,
+            signature_id: None,
+            layout_id: Some("lay_1".into()),
+            updated_at: 0,
+        };
+        let meta = OutgoingMeta { from: EmailAddress::new("Me", "me@x.test"), message_id: "m@x.test".into(), in_reply_to: None, references: &[] };
+        let (bytes, _) = build_message(&draft, &meta).unwrap();
+        let s = String::from_utf8_lossy(&bytes);
+        // The logo is a related part, not a data: URL.
+        assert!(s.contains("multipart/related") && s.contains("Content-ID: <img1.m@x.test>"), "{s}");
+        assert!(!s.contains("data:image"), "{s}");
+        let parsed = crate::mime::parse(&bytes).unwrap();
+        // The logo is in the header and the footer, and is one part in the message.
+        assert_eq!(parsed.attachments.iter().filter(|a| a.inline).count(), 1);
+        let html = parsed.html.clone().unwrap_or_default();
+        assert_eq!(html.matches("cid:img1.m@x.test").count(), 2, "{html}");
+        assert!(html.contains("cid:img1.m@x.test") && html.contains("href=\"tel:+15550102030\"") && html.contains("href=\"mailto:dana@acme.test\""), "{html}");
+        // The plain-text part carries the same words, in order.
+        let text = parsed.text.clone().unwrap_or_default();
+        let at = |needle: &str| text.find(needle).unwrap_or_else(|| panic!("{needle:?} missing from:\n{text}"));
+        assert!(at("Acme Ltd") < at("See you Monday.") && at("See you Monday.") < at("Dana Lee"), "{text}");
+        for part in ["Head of Sales", "+1 555 010 2030", "dana@acme.test"] {
+            at(part);
+        }
+        assert!(!text.contains("<") && !text.contains("style="), "{text}");
+        // The hidden preview line and the logo's alt text stay out of the plain text.
+        assert_eq!(text.matches("See you Monday.").count(), 1, "{text}");
+        assert!(!text.contains("logo]"), "{text}");
+        // HTML readers get the message's own first words as the preview, ahead of the header.
+        assert!(html.find("See you Monday.").unwrap() < html.find("Acme Ltd").unwrap(), "{html}");
     }
 }

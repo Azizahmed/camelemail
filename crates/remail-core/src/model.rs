@@ -403,6 +403,9 @@ pub struct Draft {
     pub thread_id: Option<String>,
     pub reply_kind: Option<ReplyKind>,
     pub signature_id: Option<String>,
+    /// Branded layout (header and footer) wrapped around the body when it's sent.
+    #[serde(default)]
+    pub layout_id: Option<String>,
     pub updated_at: i64,
 }
 
@@ -414,6 +417,195 @@ pub struct Signature {
     pub name: String,
     pub html: String,
     pub is_default: bool,
+}
+
+/// The logo of a branded layout: the picture itself (resized by the UI, at most
+/// twice its display size) and/or a public HTTPS address to link instead.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LayoutLogo {
+    /// Base64 of a PNG, JPEG or GIF; empty when only `url` is used.
+    #[serde(default)]
+    pub data: String,
+    #[serde(default)]
+    pub mime: String,
+    /// Display size in CSS pixels.
+    pub width: u32,
+    pub height: u32,
+    /// Empty: the organisation's name plus "logo".
+    #[serde(default)]
+    pub alt: String,
+    /// Public HTTPS address; used instead of the embedded picture.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Dominant colours (`#rrggbb`), worked out by the UI when the picture is chosen.
+    #[serde(default)]
+    pub colors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LayoutAlign {
+    #[default]
+    Left,
+    Center,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LayoutDivider {
+    None,
+    #[default]
+    Line,
+    Bar,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LogoPosition {
+    /// Logo beside the name, at the start of the line.
+    #[default]
+    Left,
+    /// Logo beside the name, the pair centred.
+    Center,
+    /// Logo above the name.
+    Above,
+}
+
+/// Where the footer's signature block (logo and details) sits on the line. Left
+/// and right follow the direction of the text: Arabic starts on the right.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FooterAlign {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+/// The logo in the footer: not at all, beside the details, or above them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FooterLogo {
+    None,
+    #[default]
+    Beside,
+    Above,
+}
+
+/// The header's button: a filled colour block, or an outline.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ButtonStyle {
+    #[default]
+    Filled,
+    Outline,
+}
+
+/// The design choices of a layout. The renderer (`layout.rs`) turns these into
+/// email-safe HTML; nothing here is markup.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LayoutStyle {
+    /// Links, the button and the divider (`#rrggbb`).
+    pub accent: String,
+    #[serde(alias = "header_bg")]
+    pub header_bg: String,
+    #[serde(alias = "text_color")]
+    pub text_color: String,
+    #[serde(alias = "muted_color")]
+    pub muted_color: String,
+    /// The header's alignment.
+    #[serde(default)]
+    pub alignment: LayoutAlign,
+    #[serde(default)]
+    pub divider: LayoutDivider,
+    #[serde(default, alias = "logo_position")]
+    pub logo_position: LogoPosition,
+    #[serde(default, alias = "footer_align")]
+    pub footer_align: FooterAlign,
+    #[serde(default, alias = "footer_logo")]
+    pub footer_logo: FooterLogo,
+    #[serde(default, alias = "button_style")]
+    pub button_style: ButtonStyle,
+    /// One short line under the organisation's name.
+    #[serde(default)]
+    pub tagline: Option<String>,
+    /// The ready-made template this design came from (None: customised).
+    #[serde(default)]
+    pub template: Option<String>,
+}
+
+impl Default for LayoutStyle {
+    fn default() -> Self {
+        LayoutStyle {
+            accent: "#0b5cad".into(),
+            header_bg: "#ffffff".into(),
+            text_color: "#1f2933".into(),
+            muted_color: "#52606d".into(),
+            alignment: LayoutAlign::Left,
+            divider: LayoutDivider::Line,
+            logo_position: LogoPosition::Left,
+            footer_align: FooterAlign::Left,
+            footer_logo: FooterLogo::Beside,
+            button_style: ButtonStyle::Filled,
+            tagline: None,
+            template: None,
+        }
+    }
+}
+
+/// The header's button: its text and where it goes (`https://` or `mailto:`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LayoutButton {
+    pub label: String,
+    pub url: String,
+}
+
+/// A branded email header and footer, built from the organisation's and the
+/// sender's details and wrapped around outgoing mail.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrandedLayout {
+    pub id: String,
+    /// None: any account.
+    pub account_id: Option<String>,
+    pub name: String,
+    pub org_name: String,
+    /// A short description of the organisation, shown in the header.
+    #[serde(default)]
+    pub about: String,
+    #[serde(default)]
+    pub logo: Option<LayoutLogo>,
+    /// The header's button (optional).
+    #[serde(default)]
+    pub button: Option<LayoutButton>,
+    pub sender_name: String,
+    pub position: String,
+    pub phone: String,
+    pub email: String,
+    #[serde(default)]
+    pub style: LayoutStyle,
+    /// Also wrap replies and forwards (new mail is always wrapped).
+    #[serde(default)]
+    pub use_on_replies: bool,
+    pub is_default: bool,
+    #[serde(default)]
+    pub updated_at: i64,
+}
+
+/// What the UI shows for a layout: the rendered header and footer, and which
+/// colours had to change to stay readable.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LayoutPreview {
+    pub header: String,
+    pub footer: String,
+    /// A sample message inside the layout, exactly as it would be sent.
+    pub full: String,
+    /// Names of the style fields (`accent`, `textColor`, `mutedColor`) the renderer darkened.
+    pub adjusted: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

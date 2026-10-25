@@ -15,6 +15,7 @@ pub mod compose;
 pub mod engine;
 pub mod graph;
 pub mod imap;
+pub mod layout;
 pub mod mcp;
 pub mod mime;
 pub mod model;

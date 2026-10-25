@@ -10,6 +10,7 @@
     Heading2,
     Heading3,
     Image,
+    LayoutTemplate,
     Link,
     List,
     ListOrdered,
@@ -49,7 +50,8 @@
   import { EditorHistory } from "../../lib/editor-history";
   import { base64Size, fileSize, wakeDate } from "../../lib/format";
   import { cellPosition, newTableHtml, normalizeTable, partState, tableAction, type Part, type TableAction } from "../../lib/table";
-  import type { Account, AiSettingsView, AppSettings, Draft, OutgoingAttachment, Signature, Template } from "../../lib/types";
+  import type { Account, AiSettingsView, AppSettings, BrandedLayout, Draft, LayoutPreview, OutgoingAttachment, Signature, Template } from "../../lib/types";
+  import { t as tr } from "../../lib/i18n.svelte";
   import { confirmDialog, toast, toastError } from "../../lib/ui.svelte";
   import { saveUiPrefs } from "../../lib/prefs.svelte";
   import EmailFrame from "../thread/EmailFrame.svelte";
@@ -83,11 +85,15 @@
   let accounts: Account[] = $state([]);
   let signatures: Signature[] = $state([]);
   let templates: Template[] = $state([]);
+  let layouts: BrandedLayout[] = $state([]);
+  /** The selected layout, rendered: shown read-only around the body; Camel Mail wraps the message in it when sending. */
+  let layoutPreview = $state<LayoutPreview | null>(null);
+  let layoutSeq = 0;
   let settings: AppSettings | null = $state(null);
   let showCc = $state(d.cc.length > 0 || d.bcc.length > 0);
   let showQuote = $state(false);
   let scheduleAt: number | null = $state(null);
-  let menu = $state<null | { kind: "schedule" | "signature" | "template" | "ai"; anchor: DOMRect }>(null);
+  let menu = $state<null | { kind: "schedule" | "signature" | "layout" | "template" | "ai"; anchor: DOMRect }>(null);
   /** The "/" block menu while a command is being typed. */
   let slash = $state<null | { anchor: DOMRect; items: SlashItem[]; active: number }>(null);
   /** A "/" was typed: follow what comes after it. */
@@ -159,6 +165,22 @@
   ]);
   const fromEmail = $derived(accounts.find((a) => a.id === d.accountId)?.email ?? "");
   const usableSignatures = $derived(signatures.filter((s) => !s.accountId || s.accountId === d.accountId));
+  const usableLayouts = $derived(layouts.filter((l) => !l.accountId || l.accountId === d.accountId));
+
+  // The Rust renderer draws the blocks, so what is shown here is what is sent.
+  $effect(() => {
+    const l = layouts.find((x) => x.id === d.layoutId);
+    const seq = ++layoutSeq;
+    if (!l) {
+      layoutPreview = null;
+      return;
+    }
+    const snap = $state.snapshot(l) as BrandedLayout;
+    api.layoutPreview(snap).then(
+      (p) => seq === layoutSeq && (layoutPreview = p),
+      () => seq === layoutSeq && (layoutPreview = null),
+    );
+  });
 
   onMount(async () => {
     editorEl = editor;
@@ -174,7 +196,7 @@
       .onDragDropEvent((ev) => onNativeDrag(ev.payload))
       .then((u) => (destroyed ? u() : (unlistenDrop = u)))
       .catch(() => {});
-    [accounts, signatures, templates, settings] = await Promise.all([api.accounts(), api.signatures(), api.templates(), api.getSettings()]);
+    [accounts, signatures, templates, settings, layouts] = await Promise.all([api.accounts(), api.signatures(), api.templates(), api.getSettings(), api.layouts().catch(() => [] as BrandedLayout[])]);
     ai = await api.aiSettings().catch(() => null);
     if (variant === "inline" || d.to.length > 0) placeCaretAtStart();
   });
@@ -411,10 +433,33 @@
     touch();
   }
 
+  // ---- layout ----------------------------------------------------------
+
+  /** An account's default layout (replies and forwards only when the layout is set for them). */
+  function defaultLayout(accountId: string): BrandedLayout | null {
+    const l = layouts.find((x) => x.isDefault && x.accountId === accountId) ?? layouts.find((x) => x.isDefault && !x.accountId) ?? null;
+    return l && (!d.replyKind || l.useOnReplies) ? l : null;
+  }
+
+  /** The layout's footer is the sender's signature block, so it takes the signature's place (and "No layout" brings the default signature back). */
+  function setLayout(l: BrandedLayout | null) {
+    menu = null;
+    d.layoutId = l?.id ?? null;
+    if (l) {
+      if (d.signatureId) setSignature(null);
+    } else if (!d.signatureId) {
+      const def = signatures.find((s) => s.isDefault && s.accountId === d.accountId) ?? signatures.find((s) => s.isDefault && !s.accountId) ?? null;
+      if (def) setSignature(def);
+    }
+    touch();
+  }
+
   function changeAccount(id: string) {
     d.accountId = id;
-    const def = signatures.find((s) => s.isDefault && s.accountId === id) ?? signatures.find((s) => s.isDefault && !s.accountId) ?? null;
-    if (d.signatureId !== def?.id) setSignature(def);
+    const layout = layouts.length ? defaultLayout(id) : null;
+    if ((d.layoutId ?? null) !== (layout?.id ?? null) && (layout || layouts.some((l) => l.id === d.layoutId))) setLayout(layout);
+    const def = d.layoutId ? null : (signatures.find((s) => s.isDefault && s.accountId === id) ?? signatures.find((s) => s.isDefault && !s.accountId) ?? null);
+    if (!d.layoutId && d.signatureId !== def?.id) setSignature(def);
     const acc = accounts.find((a) => a.id === id);
     if (acc?.autoBcc.length) {
       for (const b of acc.autoBcc) if (!d.bcc.some((x) => x.email === b)) d.bcc = [...d.bcc, { name: "", email: b }];
@@ -1059,6 +1104,7 @@
       {/if}
       <button class="icon-btn" title="Attach files" onclick={attach}><Paperclip size={15} /></button>
       <button class="icon-btn" title="Signatures" onclick={(e) => (menu = { kind: "signature", anchor: e.currentTarget.getBoundingClientRect() })}><PenLine size={15} /></button>
+      <button class="icon-btn" title={tr("layout.picker")} class:active={!!d.layoutId} onclick={(e) => (menu = { kind: "layout", anchor: e.currentTarget.getBoundingClientRect() })}><LayoutTemplate size={15} /></button>
       <button class="icon-btn" title="Templates" onclick={(e) => (menu = { kind: "template", anchor: e.currentTarget.getBoundingClientRect() })}><FileText size={15} /></button>
       {#if ai?.settings.enabled}
         <button class="icon-btn ai-btn" title="AI assistance" disabled={aiRunning} onclick={(e) => openAi(e.currentTarget.getBoundingClientRect())}><Sparkles size={15} /></button>
@@ -1094,6 +1140,9 @@
     </div>
   {/if}
 
+  {#if layoutPreview?.header}
+    <div class="layout-block" role="img" aria-label={tr("layout.headerAria")} inert><EmailFrame html={layoutPreview.header} text={null} collapseQuotes={false} /></div>
+  {/if}
   <div
     class="editor selectable"
     class:ai-busy={aiRunning}
@@ -1111,6 +1160,10 @@
     onblur={closeSlash}
     data-placeholder="Your message here… Type / for headings, lists, tables and more"
   ></div>
+
+  {#if layoutPreview?.footer}
+    <div class="layout-block" role="img" aria-label={tr("layout.footerAria")} inert><EmailFrame html={layoutPreview.footer} text={null} collapseQuotes={false} /></div>
+  {/if}
 
   {#if d.quotedHtml}
     <div class="quoted">
@@ -1222,6 +1275,16 @@
     {/each}
     <div class="menu-sep"></div>
     <button class="menu-item" onclick={() => { menu = null; api.openSettings("signatures"); }}>Manage signatures…</button>
+  </Popover>
+{:else if menu?.kind === "layout"}
+  <Popover anchor={menu.anchor} width={240} height={220} onclose={() => (menu = null)}>
+    <div class="menu-title">{tr("layout.picker")}</div>
+    <button class="menu-item" class:selected={!d.layoutId} onclick={() => setLayout(null)}>{tr("layout.none")}</button>
+    {#each usableLayouts as l (l.id)}
+      <button class="menu-item" class:selected={d.layoutId === l.id} onclick={() => setLayout(l)}>{l.name}{#if l.isDefault}<span class="detail">{tr("layout.default")}</span>{/if}</button>
+    {/each}
+    <div class="menu-sep"></div>
+    <button class="menu-item" onclick={() => { menu = null; api.openSettings("layouts"); }}>{tr("layout.manage")}</button>
   </Popover>
 {:else if menu?.kind === "template"}
   <Popover anchor={menu.anchor} width={240} height={220} onclose={() => (menu = null)}>
@@ -1339,6 +1402,15 @@
     font-size: 14px;
     font-weight: 500;
     padding: 10px 0 4px;
+  }
+  /* The layout's header and footer: shown as they will be sent, not editable. */
+  .layout-block {
+    pointer-events: none;
+    user-select: none;
+    margin: 2px 0;
+    border-radius: 8px;
+    overflow: hidden;
+    opacity: 0.92;
   }
   .editor {
     min-height: 160px;
