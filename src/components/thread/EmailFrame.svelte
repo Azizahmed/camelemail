@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
+  import { api } from "../../lib/api";
   import { applyDirections, arabicFontFaces, fixFinalMarks, useArabicFont } from "../../lib/bidi";
   import { backgroundBehind, darkenEmail } from "../../lib/darkmail";
   import { escapeHtml } from "../../lib/format";
@@ -203,7 +204,11 @@
     hasQuote = collapseQuotes && QUOTE_SELECTORS.some((s) => d.querySelector(s));
     d.body.classList.toggle("hide-quotes", hasQuote && !showQuote);
     // Links: <base target="_blank"> makes them new-window requests, which the
-    // window opens in the system browser (or compose for mailto:).
+    // window opens in the system browser (or compose for mailto:). Android's
+    // web view has no new windows: it turns them into navigating the whole
+    // app, which the sandbox refuses, so nothing happened. There the tap is
+    // taken here instead (Chromium runs the page's listeners in this frame).
+    if (isMobile) d.addEventListener("click", openLink, true);
 
     // Follows the height as images without a size arrive, and on resize.
     resized?.disconnect();
@@ -214,6 +219,15 @@
     resized.observe(d.body);
     fit(d);
     measure();
+  }
+
+  /** A tap on a link in the email: web links open in the browser, mailto: in compose. */
+  function openLink(e: MouseEvent) {
+    const link = (e.target as Element | null)?.closest?.("a[href], area[href]") as HTMLAnchorElement | HTMLAreaElement | null;
+    if (!link) return;
+    e.preventDefault();
+    const href = link.href;
+    if (/^(https?|mailto):/i.test(href)) api.openUrl(href).catch((err) => console.error("open link", err));
   }
 
   // The frame's load event waits for every image, so lay the email out as

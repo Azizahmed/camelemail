@@ -42,9 +42,12 @@ pub fn show(app: &AppHandle, title: &str, body: &str, open: Option<&OpenTarget>)
         Some(open) => builder.extra(desktop::EXTRA_KEY, open),
         None => builder,
     };
-    // Android: Remail's status-bar icon (res/drawable/ic_stat_remail), the
-    // expanded text shown when a notification is opened up, an id the target
-    // is filed under, and gone once tapped (also when the tap restarts the app).
+    // Android: the notification icon (res/drawable-*dpi/ic_stat_remail, the
+    // colour stamp logo: phones that draw it as it is show the logo, stock
+    // Android only its outline in `icon_color`; res/raw/keep.xml keeps it in
+    // release builds), the expanded text shown when a notification is opened
+    // up, an id the target is filed under, and gone once tapped (also when the
+    // tap restarts the app).
     #[cfg(mobile)]
     let builder = {
         let id = phone::new_id();

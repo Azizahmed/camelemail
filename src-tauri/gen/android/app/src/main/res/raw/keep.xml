@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Release builds shrink away resources nothing refers to in code. The
+     notification icon (drawable-*dpi/ic_stat_remail.png, the full-colour stamp
+     logo) is only looked up by name (notify.rs → the notification plugin's
+     getIdentifier), so without this Android falls back to its grey "i" icon. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_stat_remail" />
