@@ -14,7 +14,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::imap::{self, FetchedMessage, ImapConn, MailboxStatus};
+use crate::imap::{self, FetchedMessage, MailboxStatus};
+use crate::mailconn::MailConn;
 use crate::model::{labels, Account, LabelKind};
 use crate::store::{now_ms, FolderRow, FolderState, IncomingMessage, Location, Store};
 
@@ -72,7 +73,7 @@ pub struct SyncCache {
 
 /// List folders, map them to labels and persist. Returns the folders to sync
 /// in order: INBOX, other system folders, then up to 30 user folders.
-pub async fn refresh_folders(conn: &mut ImapConn, store: &Store, account: &Account) -> Result<Vec<FolderRow>> {
+pub async fn refresh_folders(conn: &mut MailConn, store: &Store, account: &Account) -> Result<Vec<FolderRow>> {
     let remote = conn.list_folders().await?;
     let mapped = imap::map_folders(&remote);
     let mut rows = Vec::new();
@@ -134,7 +135,7 @@ fn same_folders(a: &[FolderRow], b: &[FolderRow]) -> bool {
 }
 
 /// One sync pass over every synced folder.
-pub async fn sync_account(conn: &mut ImapConn, store: &Store, account: &Account, cache: &mut SyncCache) -> Result<SyncOutcome> {
+pub async fn sync_account(conn: &mut MailConn, store: &Store, account: &Account, cache: &mut SyncCache) -> Result<SyncOutcome> {
     let folders = refresh_folders(conn, store, account).await?;
     let mut outcome = SyncOutcome::default();
     let mut first_error: Option<anyhow::Error> = None;
@@ -169,7 +170,7 @@ pub async fn sync_account(conn: &mut ImapConn, store: &Store, account: &Account,
 /// server mutations are queued (they'd be absorbed into the offset). The
 /// STATUS is skipped when neither the folder (by CONDSTORE) nor the local
 /// unread count changed since the last one.
-async fn refresh_unread_offsets(conn: &mut ImapConn, store: &Store, account: &Account, folders: &[FolderRow], cache: &mut SyncCache) {
+async fn refresh_unread_offsets(conn: &mut MailConn, store: &Store, account: &Account, folders: &[FolderRow], cache: &mut SyncCache) {
     if store.pending_op_count(&account.id).unwrap_or(1) > 0 {
         return;
     }
@@ -252,7 +253,7 @@ struct Stored {
 
 /// Fetch and store `uids` in batches.
 async fn fetch_and_store(
-    conn: &mut ImapConn,
+    conn: &mut MailConn,
     store: &Store,
     account: &Account,
     folder: &FolderRow,
@@ -294,7 +295,7 @@ async fn fetch_and_store(
 }
 
 pub async fn sync_folder(
-    conn: &mut ImapConn,
+    conn: &mut MailConn,
     store: &Store,
     account: &Account,
     folder: &FolderRow,
@@ -370,7 +371,7 @@ pub async fn sync_folder(
     // 2. Flag changes on the local window.
     let local = store.local_flags(&account.id, &folder.path, status.uid_validity)?;
     if !local.is_empty() {
-        let condstore = conn.caps.condstore && prev.highest_modseq.is_some() && status.highest_modseq.is_some();
+        let condstore = conn.condstore() && prev.highest_modseq.is_some() && status.highest_modseq.is_some();
         let updates = if condstore {
             if prev.highest_modseq != status.highest_modseq {
                 conn.fetch_flags(&folder.path, &[], prev.highest_modseq).await?
@@ -450,7 +451,7 @@ fn older_page(found: &[u32], floor: u32, known: &HashSet<u32>) -> (Vec<u32>, boo
 }
 
 /// Page in older mail for a label. Returns `(stored, has_more)`.
-pub async fn load_more(conn: &mut ImapConn, store: &Store, account: &Account, label_id: &str) -> Result<(usize, bool)> {
+pub async fn load_more(conn: &mut MailConn, store: &Store, account: &Account, label_id: &str) -> Result<(usize, bool)> {
     // Unread pages through unread INBOX mail without moving the INBOX window.
     let unread_only = label_id == labels::UNREAD;
     let folder_label = if unread_only { labels::INBOX } else { label_id };
@@ -492,12 +493,11 @@ pub async fn load_more(conn: &mut ImapConn, store: &Store, account: &Account, la
 /// Run a search on the server and store matching messages locally so the
 /// normal (local) search shows them. Searches every synced folder except
 /// Trash/Spam unless the query has `in:`; keeps the newest 50 matches.
-pub async fn server_search(conn: &mut ImapConn, store: &Store, account: &Account, query: &str) -> Result<usize> {
+pub async fn server_search(conn: &mut MailConn, store: &Store, account: &Account, query: &str) -> Result<usize> {
     let parsed = crate::search::parse(query, now_ms());
     if parsed.is_empty() {
         return Ok(0);
     }
-    let criteria = crate::search::to_imap(&parsed);
     let folders = store.folders(&account.id)?;
     let scope: Vec<FolderRow> = match &parsed.folder {
         Some(name) => {
@@ -514,7 +514,18 @@ pub async fn server_search(conn: &mut ImapConn, store: &Store, account: &Account
     };
     let deadline = Instant::now() + SEARCH_BUDGET;
     let mut candidates: Vec<(FolderRow, u32, u32)> = Vec::new();
-    for f in scope {
+    if let MailConn::Graph(g) = conn {
+        // One search over the whole mailbox at Microsoft, kept to the scope.
+        for (path, uid) in g.search_messages(&parsed, SEARCH_RESULT_LIMIT * 2).await? {
+            if let Some(f) = scope.iter().find(|f| f.path == path) {
+                let uidv = g.uid_validity(&path).await?;
+                candidates.push((f.clone(), uidv, uid));
+            }
+        }
+    }
+    let criteria = crate::search::to_imap(&parsed);
+    let imap = matches!(conn, MailConn::Imap(_));
+    for f in scope.into_iter().filter(|_| imap) {
         if Instant::now() >= deadline {
             break;
         }
@@ -555,7 +566,7 @@ pub async fn server_search(conn: &mut ImapConn, store: &Store, account: &Account
 }
 
 /// Fetch the full source of a message that was synced headers-only.
-pub async fn fetch_body(conn: &mut ImapConn, store: &Store, message_id: &str) -> Result<Option<Vec<u8>>> {
+pub async fn fetch_body(conn: &mut MailConn, store: &Store, message_id: &str) -> Result<Option<Vec<u8>>> {
     let Some(loc) = store.location(message_id)? else { return Ok(None) };
     let uid = match resolve_uid(conn, store, &loc).await? {
         Some(uid) => uid,
@@ -571,7 +582,7 @@ pub async fn fetch_body(conn: &mut ImapConn, store: &Store, message_id: &str) ->
 }
 
 /// A row's current UID (see `current_uids`).
-async fn resolve_uid(conn: &mut ImapConn, store: &Store, loc: &Location) -> Result<Option<u32>> {
+async fn resolve_uid(conn: &mut MailConn, store: &Store, loc: &Location) -> Result<Option<u32>> {
     Ok(current_uids(conn, store, &loc.path, vec![loc.clone()]).await?.into_iter().next().map(|(_, uid)| uid))
 }
 
@@ -579,7 +590,7 @@ async fn resolve_uid(conn: &mut ImapConn, store: &Store, loc: &Location) -> Resu
 /// from an older UIDVALIDITY (the server renumbered the folder) or one a
 /// move left unknown is looked up by Message-ID; rows that can't be found
 /// are left out, so a stale UID is never acted on.
-async fn current_uids(conn: &mut ImapConn, store: &Store, path: &str, locs: Vec<Location>) -> Result<Vec<(Location, u32)>> {
+async fn current_uids(conn: &mut MailConn, store: &Store, path: &str, locs: Vec<Location>) -> Result<Vec<(Location, u32)>> {
     let status = conn.select(path).await?;
     if status.uid_validity == 0 {
         anyhow::bail!("server did not report UIDVALIDITY for {path}");
@@ -651,7 +662,7 @@ pub enum ServerOp {
 
 /// Destination folder for a label, creating a conventional one if missing.
 /// Archiving on Gmail moves to "All Mail", which removes the Inbox label.
-pub async fn destination_path(conn: &mut ImapConn, store: &Store, account: &Account, label: &str) -> Result<String> {
+pub async fn destination_path(conn: &mut MailConn, store: &Store, account: &Account, label: &str) -> Result<String> {
     if let Some(p) = store.folder_path(&account.id, label)? {
         return Ok(p);
     }
@@ -673,7 +684,7 @@ pub async fn destination_path(conn: &mut ImapConn, store: &Store, account: &Acco
     Ok(store.folder_path(&account.id, label)?.unwrap_or_else(|| name.to_string()))
 }
 
-pub async fn execute_op(conn: &mut ImapConn, store: &Store, account: &Account, op: &ServerOp) -> Result<()> {
+pub async fn execute_op(conn: &mut MailConn, store: &Store, account: &Account, op: &ServerOp) -> Result<()> {
     match op {
         ServerOp::Flags { message_ids, seen, flagged, answered } => {
             for (path, locs) in locations_by_path(store, message_ids, |_| false)? {
@@ -774,7 +785,7 @@ pub fn revert_op(store: &Store, account: &Account, op: &ServerOp) -> Result<()> 
 /// Store a copy of a sent message (or draft) in a folder via APPEND and
 /// record it locally.
 pub async fn append_and_record(
-    conn: &mut ImapConn,
+    conn: &mut MailConn,
     store: &Store,
     account: &Account,
     label: &str,

@@ -585,6 +585,7 @@ impl Store {
         migrate(&mut conn, version).context("upgrading the database")?;
         conn.execute_batch(SCHEMA)?;
         conn.execute_batch(crate::calendar::SCHEMA)?;
+        conn.execute_batch(crate::graphmail::SCHEMA)?;
         crate::calendar::upgrade(&conn).context("upgrading the calendar tables")?;
         conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
         // Collect planner statistics where they're missing or stale (bounded

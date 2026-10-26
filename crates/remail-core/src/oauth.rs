@@ -62,7 +62,8 @@ impl Provider {
             token_url: format!("{base}/oauth2/v2.0/token"),
             scope: "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access openid email profile"
                 .into(),
-            also_consent: crate::graph::SCOPE.into(),
+            // Calendars, and mail through Graph for mailboxes that refuse IMAP.
+            also_consent: format!("{} {}", crate::graph::SCOPE, crate::graphmail::SCOPE),
             authorize_params: vec![("prompt", "select_account")],
             refresh_with_scope: true,
             client_secret: String::new(),

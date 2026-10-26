@@ -598,7 +598,11 @@
                     <input class="input narrow" aria-label="Auto-BCC" placeholder="name@example.com" bind:value={bccDraft[a.id]} onblur={() => saveBcc(a)} onkeydown={(e) => e.key === "Enter" && e.currentTarget.blur()} />
                   {/snippet}
                   <div class="server-line selectable">
-                    IMAP {a.imap.host}:{a.imap.port} · SMTP {a.smtp.host}:{a.smtp.port}
+                    {#if a.auth === "microsoft" && a.imap.host.toLowerCase() === "graph.microsoft.com"}
+                      Mail through Microsoft Graph (Microsoft doesn't open this mailbox over IMAP)
+                    {:else}
+                      IMAP {a.imap.host}:{a.imap.port} · SMTP {a.smtp.host}:{a.smtp.port}
+                    {/if}
                   </div>
                   {#if a.lastError}<div class="err-line selectable">{a.lastError}</div>{/if}
                   {#if reauthId === a.id}

@@ -25,7 +25,9 @@ use crate::ai::{self, AiSettings};
 use crate::assistant::{self, ChatEvent};
 use crate::cloud::CloudError;
 use crate::compose;
+use crate::graphmail::{self, GraphMail};
 use crate::imap::{self, ImapConn};
+use crate::mailconn::MailConn;
 use crate::mcp::client::{McpHub, McpServerConfig, McpTransport};
 use crate::mcp::server::{McpServerHandle, ToolHandler};
 use crate::mcp::{self as mcpmod, ServerInfo, ToolInfo, ToolOutput};
@@ -394,7 +396,7 @@ impl Drop for Worker {
 }
 
 pub(crate) struct Inner {
-    store: Store,
+    store: Arc<Store>,
     secrets: Arc<dyn SecretStore>,
     sink: Arc<dyn EventSink>,
     workers: Mutex<HashMap<String, Worker>>,
@@ -484,6 +486,7 @@ pub struct Engine {
 const OP_MAX_ATTEMPTS: i64 = 5;
 const SEND_RETRY_DELAYS_MS: [i64; 3] = [60_000, 300_000, 900_000];
 const POLL_BACKOFF_MAX: Duration = Duration::from_secs(300);
+const GRAPH_POLL_MAX: Duration = Duration::from_secs(60);
 const IDLE_REFRESH: Duration = Duration::from_secs(25 * 60);
 
 impl Engine {
@@ -516,7 +519,7 @@ impl Engine {
     fn build(store: Store, secrets: Arc<dyn SecretStore>, sink: Arc<dyn EventSink>, data_dir: Option<PathBuf>) -> Result<Engine> {
         store.reset_stuck_outbox()?;
         let inner = Arc::new(Inner {
-            store,
+            store: Arc::new(store),
             secrets,
             sink,
             workers: Mutex::new(HashMap::new()),
@@ -827,10 +830,21 @@ impl Engine {
         let existing = self.inner.store.account(id)?.context("account not found")?;
         if existing.auth != "password" {
             // Signed in with OAuth: only the servers can change here (see `reauthorize_account`).
-            let login = login_for(&self.inner, &existing).await?;
-            verify_imap(&a.imap, &existing.username, &login, a.allow_invalid_certs).await?;
-            smtp::verify(&a.smtp, &existing.username, &login, a.allow_invalid_certs).await.map_err(|e| anyhow!(e)).context("SMTP")?;
-            let a = NewAccount { username: existing.username.clone(), ..a };
+            let to_graph = existing.auth == oauth::MICROSOFT && a.imap.host.trim().eq_ignore_ascii_case(graphmail::HOST);
+            if to_graph {
+                graph_api(&self.inner, id).probe().await?;
+            } else {
+                let login = login_for(&self.inner, &existing).await?;
+                verify_imap(&a.imap, &existing.username, &login, a.allow_invalid_certs).await?;
+                smtp::verify(&a.smtp, &existing.username, &login, a.allow_invalid_certs).await.map_err(|e| anyhow!(e)).context("SMTP")?;
+            }
+            let (imap, smtp) = if to_graph { graphmail::servers() } else { (a.imap.clone(), a.smtp.clone()) };
+            let a = NewAccount { username: existing.username.clone(), imap, smtp, ..a };
+            if to_graph != graphmail::uses_graph(&existing) {
+                // UIDs and folder paths don't carry over between IMAP and Graph.
+                self.inner.workers.lock().unwrap().remove(id);
+                graphmail::reset_account(&self.inner.store, id)?;
+            }
             self.inner.store.update_account_servers(id, &a)?;
             self.inner.workers.lock().unwrap().remove(id);
             self.spawn_worker(id);
@@ -866,6 +880,7 @@ impl Engine {
         let mut cache = self.inner.oauth_tokens.lock().unwrap();
         cache.remove(id);
         cache.remove(&token_key(id, Service::Calendar));
+        cache.remove(&token_key(id, Service::GraphMail));
         drop(cache);
         // Its hidden folders went with it (they sync as part of its record).
         let mut ui = self.ui_prefs();
@@ -1052,6 +1067,15 @@ impl Engine {
         self.add_oauth_account(oauth::GOOGLE, tokens, client_id, cancel, req, |_, _| presets::google_servers()).await
     }
 
+    /// Check that Microsoft Graph opens the mailbox of a fresh Microsoft
+    /// sign-in. Returns the Graph token (its refresh token may have rotated).
+    async fn check_graph_mail(&self, client_id: &str, refresh_token: &str) -> Result<oauth::Tokens> {
+        let provider = microsoft_provider(self.org().map(|o| o.providers.microsoft_app.tenant).as_deref());
+        let tokens = oauth::refresh(&self.inner.http, &provider, client_id, refresh_token, graphmail::SCOPE).await?;
+        graphmail::Api::new(self.inner.http.clone(), &graph_base(), graphmail::fixed_token(tokens.access_token.clone())).probe().await?;
+        Ok(tokens)
+    }
+
     async fn add_oauth_account(
         &self,
         provider: &str,
@@ -1073,14 +1097,32 @@ impl Engine {
         if self.inner.store.accounts()?.iter().any(|x| x.email.eq_ignore_ascii_case(&email)) {
             bail!("{email} is already added");
         }
-        let refresh_token = tokens.refresh_token.clone().with_context(|| format!("{name} didn't allow staying signed in (no refresh token)"))?;
+        let mut refresh_token = tokens.refresh_token.clone().with_context(|| format!("{name} didn't allow staying signed in (no refresh token)"))?;
         let (imap, smtp) = match (req.imap, req.smtp) {
             (Some(i), Some(s)) => (i, s),
             _ => servers(&email, &tokens),
         };
         let login = Login::OAuth(tokens.access_token.clone());
-        verify_imap(&imap, &email, &login, req.allow_invalid_certs).await?;
-        let warning = smtp::verify(&smtp, &email, &login, req.allow_invalid_certs).await.err().map(|e| format!("Reading works, but sending doesn't yet: {e}"));
+        let mut graph_token = None;
+        let (imap, smtp, warning) = match verify_imap(&imap, &email, &login, req.allow_invalid_certs).await {
+            Ok(_) => {
+                let warning =
+                    smtp::verify(&smtp, &email, &login, req.allow_invalid_certs).await.err().map(|e| format!("Reading works, but sending doesn't yet: {e}"));
+                (imap, smtp, warning)
+            }
+            // Microsoft won't open this mailbox over IMAP: read and send it through Graph.
+            Err(e) if provider == oauth::MICROSOFT && mailbox_unavailable(&e) => {
+                let checked = self.check_graph_mail(&client_id, &refresh_token).await.map_err(|g| {
+                    tracing::warn!("{email}: Microsoft Graph didn't open the mailbox either: {g:#}");
+                    e
+                })?;
+                refresh_token = checked.refresh_token.clone().unwrap_or(refresh_token);
+                graph_token = Some(checked);
+                let (i, s) = graphmail::servers();
+                (i, s, None)
+            }
+            Err(e) => return Err(e),
+        };
         let display_name = req.display_name.filter(|n| !n.trim().is_empty()).or_else(|| tokens.identity.name.clone()).unwrap_or_default();
         let new = NewAccount {
             email: email.clone(),
@@ -1108,6 +1150,9 @@ impl Engine {
                 cache.insert(token_key(&account.id, Service::Calendar), (tokens.access_token.clone(), tokens.expires_at));
             }
             cache.insert(account.id.clone(), (tokens.access_token, tokens.expires_at));
+            if let Some(g) = graph_token {
+                cache.insert(token_key(&account.id, Service::GraphMail), (g.access_token, g.expires_at));
+            }
         }
         self.spawn_worker(&account.id);
         if provider == oauth::GOOGLE {
@@ -1152,12 +1197,31 @@ impl Engine {
             let who = tokens.identity.email.clone().unwrap_or_else(|| "a different account".into());
             bail!("You signed in as {who}, but this account is {}. Please sign in with {} instead.", account.email, account.email);
         }
-        let refresh_token = tokens
+        let mut refresh_token = tokens
             .refresh_token
             .clone()
             .with_context(|| format!("{} didn't allow staying signed in (no refresh token)", provider_name(provider)))?;
         // Prove the new sign-in opens this mailbox before replacing anything.
-        verify_imap(&account.imap, &account.username, &Login::OAuth(tokens.access_token.clone()), account.allow_invalid_certs).await?;
+        let mut to_graph = false;
+        let graph_check = if graphmail::uses_graph(&account) {
+            Some(self.check_graph_mail(&client_id, &refresh_token).await?)
+        } else {
+            match verify_imap(&account.imap, &account.username, &Login::OAuth(tokens.access_token.clone()), account.allow_invalid_certs).await {
+                Ok(_) => None,
+                Err(e) if provider == oauth::MICROSOFT && mailbox_unavailable(&e) => {
+                    let checked = self.check_graph_mail(&client_id, &refresh_token).await.map_err(|g| {
+                        tracing::warn!("{}: Microsoft Graph didn't open the mailbox either: {g:#}", account.email);
+                        e
+                    })?;
+                    to_graph = true;
+                    Some(checked)
+                }
+                Err(e) => return Err(e),
+            }
+        };
+        if let Some(rotated) = graph_check.as_ref().and_then(|t| t.refresh_token.clone()) {
+            refresh_token = rotated;
+        }
         if cancel.is_cancelled() {
             bail!("Sign-in cancelled");
         }
@@ -1173,6 +1237,25 @@ impl Engine {
             cache.insert(id.to_string(), (tokens.access_token, tokens.expires_at));
             // The calendar may have just been allowed: ask for a new token.
             cache.remove(&token_key(id, Service::Calendar));
+            match graph_check {
+                Some(g) => cache.insert(token_key(id, Service::GraphMail), (g.access_token, g.expires_at)),
+                None => cache.remove(&token_key(id, Service::GraphMail)),
+            };
+        }
+        if to_graph {
+            // Microsoft won't open it over IMAP: its mail starts over through Graph.
+            graphmail::reset_account(&self.inner.store, id)?;
+            let (imap, smtp) = graphmail::servers();
+            let new = NewAccount {
+                email: account.email.clone(),
+                display_name: account.display_name.clone(),
+                username: account.username.clone(),
+                password: String::new(),
+                imap,
+                smtp,
+                allow_invalid_certs: account.allow_invalid_certs,
+            };
+            self.inner.store.update_account_servers(id, &new)?;
         }
         self.inner.store.set_account_status(id, AccountStatus::Active, None)?;
         self.inner.workers.lock().unwrap().remove(id);
@@ -2905,7 +2988,74 @@ fn strip_header(raw: &[u8], name: &str) -> Vec<u8> {
 // Account worker
 // ----------------------------------------------------------------------------
 
-async fn connect(inner: &Inner, account: &Account) -> Result<ImapConn> {
+/// The account's mail connection: IMAP, or Microsoft Graph for a mailbox
+/// read through it. A Microsoft mailbox whose IMAP is refused moves to Graph
+/// here, when Graph opens it.
+async fn connect(inner: &Arc<Inner>, account: &Account) -> Result<MailConn> {
+    if graphmail::uses_graph(account) {
+        return Ok(MailConn::Graph(graph_mail(inner, &account.id)));
+    }
+    match connect_imap(inner, account).await {
+        Err(e) if account.auth == oauth::MICROSOFT && mailbox_unavailable(&e) => match switch_to_graph(inner, account).await {
+            Ok(()) => Ok(MailConn::Graph(graph_mail(inner, &account.id))),
+            // Signed in before Graph mail was asked for: signing in again fixes it.
+            Err(g) if g.downcast_ref::<oauth::SignInRequired>().is_some() => Err(g),
+            Err(g) => {
+                tracing::warn!("{}: Microsoft Graph didn't open the mailbox either: {g:#}", account.email);
+                Err(e)
+            }
+        },
+        r => r.map(MailConn::Imap),
+    }
+}
+
+fn mailbox_unavailable(e: &anyhow::Error) -> bool {
+    e.chain().any(|c| c.is::<imap::MailboxUnavailable>())
+}
+
+fn graph_mail(inner: &Arc<Inner>, account_id: &str) -> GraphMail {
+    GraphMail::new(graph_api(inner, account_id), inner.store.clone(), account_id)
+}
+
+fn graph_api(inner: &Arc<Inner>, account_id: &str) -> graphmail::Api {
+    let weak = Arc::downgrade(inner);
+    let id = account_id.to_string();
+    let tokens: graphmail::TokenSource = Arc::new(move |failed: Option<String>| {
+        let (weak, id) = (weak.clone(), id.clone());
+        Box::pin(async move {
+            let inner = weak.upgrade().context("the engine stopped")?;
+            if let Some(f) = failed {
+                forget_service_token(&inner, &id, Service::GraphMail, &f);
+            }
+            access_token(&inner, &id, Service::GraphMail).await
+        })
+    });
+    graphmail::Api::new(inner.http.clone(), &graph_base(), tokens)
+}
+
+/// Read an account's mail through Graph from now on (Microsoft refused its
+/// IMAP): check that Graph opens the mailbox, then start its mail over.
+async fn switch_to_graph(inner: &Arc<Inner>, account: &Account) -> Result<()> {
+    graph_api(inner, &account.id).probe().await?;
+    tracing::info!("{}: Microsoft refuses IMAP for this mailbox; reading it through Microsoft Graph", account.email);
+    graphmail::reset_account(&inner.store, &account.id)?;
+    let (imap, smtp) = graphmail::servers();
+    let new = NewAccount {
+        email: account.email.clone(),
+        display_name: account.display_name.clone(),
+        username: account.username.clone(),
+        password: String::new(),
+        imap,
+        smtp,
+        allow_invalid_certs: account.allow_invalid_certs,
+    };
+    inner.store.update_account_servers(&account.id, &new)?;
+    mark_dirty(inner, sections::ACCOUNTS);
+    inner.sink.emit(EngineEvent::MailboxChanged { account_id: account.id.clone() });
+    Ok(())
+}
+
+async fn connect_imap(inner: &Inner, account: &Account) -> Result<ImapConn> {
     let login = login_for(inner, account).await?;
     match ImapConn::connect(account, &login).await {
         Err(e) if imap::is_auth_error(&e) => match &login {
@@ -3058,6 +3208,8 @@ async fn login_for(inner: &Inner, account: &Account) -> Result<Login> {
 pub(crate) enum Service {
     Mail,
     Calendar,
+    /// Mail through Microsoft Graph (see `graphmail`).
+    GraphMail,
 }
 
 /// Where a service's access token is cached.
@@ -3065,6 +3217,7 @@ fn token_key(account_id: &str, service: Service) -> String {
     match service {
         Service::Mail => account_id.to_string(),
         Service::Calendar => format!("{account_id}#calendar"),
+        Service::GraphMail => format!("{account_id}#graph-mail"),
     }
 }
 
@@ -3092,6 +3245,7 @@ async fn access_token(inner: &Inner, account_id: &str, service: Service) -> Resu
     let name = provider.display_name();
     let scope = match service {
         Service::Calendar if provider.id == oauth::MICROSOFT => crate::graph::SCOPE.to_string(),
+        Service::GraphMail => graphmail::SCOPE.to_string(),
         _ => provider.scope.clone(),
     };
     // A Google sign-in the server exchanged (a "Web" client) refreshes there too: only it has the secret.
@@ -3116,6 +3270,11 @@ async fn access_token(inner: &Inner, account_id: &str, service: Service) -> Resu
                 (Some(o), Service::Calendar) if o.needs_sign_in() => {
                     sign_in_again(&format!("Sign in to {name} again to allow Remail to show this calendar ({}).", o.to_string().trim_end_matches('.')))
                 }
+                // Signed in before mail through Graph was asked for, or the permission was taken back.
+                (Some(o), Service::GraphMail) if o.needs_sign_in() => sign_in_again(&format!(
+                    "Microsoft won't open this mailbox over IMAP. Sign in to {name} again to read it through Microsoft Graph ({}).",
+                    o.to_string().trim_end_matches('.')
+                )),
                 _ => e,
             });
         }
@@ -3174,7 +3333,7 @@ macro_rules! with_conn {
     }};
 }
 
-async fn flush_ops(inner: &Inner, conn: &mut Option<ImapConn>, account: &Account) -> Result<usize> {
+async fn flush_ops(inner: &Arc<Inner>, conn: &mut Option<MailConn>, account: &Account) -> Result<usize> {
     let mut done = 0;
     let now = now_ms();
     for op in inner.store.due_ops(&account.id, now)? {
@@ -3212,7 +3371,7 @@ async fn flush_ops(inner: &Inner, conn: &mut Option<ImapConn>, account: &Account
 }
 
 async fn worker_loop(weak: Weak<Inner>, account_id: String, mut rx: mpsc::UnboundedReceiver<Cmd>) {
-    let mut conn: Option<ImapConn> = None;
+    let mut conn: Option<MailConn> = None;
     let mut cache = sync::SyncCache::default();
     let mut next_tick = Instant::now();
     let mut empty_polls: u32 = 0;
@@ -3285,7 +3444,7 @@ async fn worker_loop(weak: Weak<Inner>, account_id: String, mut rx: mpsc::Unboun
                         } else {
                             empty_polls = (empty_polls + 1).min(8);
                         }
-                        let wait = (interval * 2u32.pow(empty_polls)).min(POLL_BACKOFF_MAX);
+                        let wait = (interval * 2u32.pow(empty_polls)).min(poll_max(&account));
                         next_tick = Instant::now() + wait;
                     }
                     Err(e) => {
@@ -3296,7 +3455,7 @@ async fn worker_loop(weak: Weak<Inner>, account_id: String, mut rx: mpsc::Unboun
                         inner.sink.emit(EngineEvent::SyncStatus { account_id: account.id.clone(), syncing: false, error: Some(msg) });
                         conn = None;
                         empty_polls = (empty_polls + 1).min(8);
-                        next_tick = Instant::now() + (interval * 2u32.pow(empty_polls)).min(POLL_BACKOFF_MAX);
+                        next_tick = Instant::now() + (interval * 2u32.pow(empty_polls)).min(poll_max(&account));
                     }
                 }
                 if let Some(reply) = reply {
@@ -3341,9 +3500,8 @@ async fn worker_loop(weak: Weak<Inner>, account_id: String, mut rx: mpsc::Unboun
                 let _ = reply.send(r);
             }
             Cmd::CreateFolder { name, reply } => {
-                let encoded = imap::encode_utf7(&name);
                 let r = with_conn!(conn, &inner, &account, |c| async {
-                    c.create_folder(&encoded).await?;
+                    c.create_folder(&name).await?;
                     sync::refresh_folders(c, &inner.store, &account).await.map(|_| ())
                 });
                 let _ = reply.send(r);
@@ -3355,6 +3513,16 @@ async fn worker_loop(weak: Weak<Inner>, account_id: String, mut rx: mpsc::Unboun
     }
 }
 
+/// Longest wait between polls while nothing changes. Graph has no IDLE, so
+/// polling is how new mail shows up there.
+fn poll_max(account: &Account) -> Duration {
+    if graphmail::uses_graph(account) {
+        GRAPH_POLL_MAX
+    } else {
+        POLL_BACKOFF_MAX
+    }
+}
+
 /// Second connection parked in IDLE on INBOX; any change triggers a sync.
 async fn idle_loop(weak: Weak<Inner>, account_id: String, tx: mpsc::UnboundedSender<Cmd>) {
     // Let the initial sync go first.
@@ -3363,12 +3531,15 @@ async fn idle_loop(weak: Weak<Inner>, account_id: String, tx: mpsc::UnboundedSen
     loop {
         let Some(inner) = weak.upgrade() else { return };
         let Ok(Some(account)) = inner.store.account(&account_id) else { return };
+        if graphmail::uses_graph(&account) {
+            return;
+        }
         if account.status == AccountStatus::AuthError {
             drop(inner);
             tokio::time::sleep(Duration::from_secs(60)).await;
             continue;
         }
-        let conn = connect(&inner, &account).await;
+        let conn = connect_imap(&inner, &account).await;
         drop(inner);
         let mut conn = match conn {
             Ok(c) if c.caps.idle => c,
@@ -3501,12 +3672,6 @@ struct Delivered {
 /// Build and submit the message over SMTP; nothing else (see `after_send`).
 async fn deliver_inner(inner: &Arc<Inner>, item: &OutboxItem) -> Result<Delivered> {
     let account = inner.store.account(&item.account_id)?.context("account was removed")?;
-    let login = match login_for(inner, &account).await {
-        Ok(l) => l,
-        Err(e) if e.downcast_ref::<oauth::SignInRequired>().is_some() => return Err(e),
-        // Offline, DNS, a Microsoft hiccup: retry later like any other network error.
-        Err(e) => return Err(SendError::Transient(format!("couldn't renew the Microsoft sign-in: {}", friendly_error(&e))).into()),
-    };
     let domain = account.email.rsplit('@').next().unwrap_or("remail.local").to_string();
     let message_id = format!("{}@{}", uuid::Uuid::new_v4().simple(), domain);
 
@@ -3525,6 +3690,17 @@ async fn deliver_inner(inner: &Arc<Inner>, item: &OutboxItem) -> Result<Delivere
         &item.draft,
         &compose::OutgoingMeta { from, message_id: message_id.clone(), in_reply_to: in_reply_to.as_deref(), references: &references },
     )?;
+    if graphmail::uses_graph(&account) {
+        let bcc: Vec<String> = item.draft.bcc.iter().map(|a| a.email.clone()).collect();
+        graph_api(inner, &account.id).send_mime(&graphmail::with_bcc(&raw, &bcc)).await.map_err(graph_send_error)?;
+        return Ok(Delivered { account, message_id, raw });
+    }
+    let login = match login_for(inner, &account).await {
+        Ok(l) => l,
+        Err(e) if e.downcast_ref::<oauth::SignInRequired>().is_some() => return Err(e),
+        // Offline, DNS, a Microsoft hiccup: retry later like any other network error.
+        Err(e) => return Err(SendError::Transient(format!("couldn't renew the Microsoft sign-in: {}", friendly_error(&e))).into()),
+    };
     let send = |login: Login| {
         let (account, recipients, raw) = (&account, &recipients, &raw);
         async move { smtp::send(&account.smtp, &account.username, &login, account.allow_invalid_certs, &account.email, recipients, raw).await }
@@ -3552,14 +3728,26 @@ async fn deliver_inner(inner: &Arc<Inner>, item: &OutboxItem) -> Result<Delivere
     Ok(Delivered { account, message_id, raw })
 }
 
+/// What a failed send through Graph means for retrying: a refusal of the
+/// message (HTTP 4xx) is final, anything else is worth another try.
+fn graph_send_error(e: anyhow::Error) -> anyhow::Error {
+    if e.downcast_ref::<oauth::SignInRequired>().is_some() {
+        return e;
+    }
+    match e.downcast_ref::<crate::graph::GraphError>() {
+        Some(g) if (400..500).contains(&g.status) && g.status != 429 => SendError::Permanent(g.message.clone()).into(),
+        _ => SendError::Transient(friendly_error(&e)).into(),
+    }
+}
+
 /// Bookkeeping once the server has taken a message: a copy in Sent, \Answered
 /// on the original, the draft removed. Only local changes and queued server
 /// ops (which survive a restart), so none of it can send the message again.
 fn after_send(inner: &Arc<Inner>, item: &OutboxItem, sent: Delivered) {
     let engine = Engine { inner: inner.clone() };
     let account = &sent.account;
-    // Gmail files sent mail itself; other servers need an APPEND to Sent.
-    if !account.is_gmail {
+    // Gmail and Graph file sent mail themselves; other servers need an APPEND to Sent.
+    if !account.is_gmail && !graphmail::uses_graph(account) {
         let op = ServerOp::Append {
             label: labels::SENT.into(),
             flags: "(\\Seen)".into(),
