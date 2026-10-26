@@ -570,6 +570,10 @@ impl Engine {
         self.inner.sync_started.lock().unwrap().clear();
         for account in accounts {
             self.spawn_worker(&account.id);
+            // A Google calendar that couldn't connect when the account was added gets another try.
+            if account.auth == oauth::GOOGLE {
+                self.spawn_google_calendar(&account.id);
+            }
         }
         let weak = || Arc::downgrade(&self.inner);
         self.spawn_gated(&token, outbox_loop(weak()));
@@ -1022,13 +1026,15 @@ impl Engine {
         });
     }
 
-    /// Connect the Google account's calendars in the background (once).
+    /// Connect the Google account's calendars in the background, unless
+    /// they're connected already or the user disconnected them.
     fn spawn_google_calendar(&self, account_id: &str) {
         let engine = self.clone();
         let id = account_id.to_string();
         self.inner.runtime.spawn(async move {
             let have = engine.cal_accounts().map(|c| c.iter().any(|c| c.mail_account_id.as_deref() == Some(id.as_str()))).unwrap_or(true);
-            if have {
+            let off: Vec<String> = engine.inner.store.setting(crate::calendar::OUTLOOK_OFF).unwrap_or_default();
+            if have || off.contains(&id) {
                 return;
             }
             let req = crate::calendar::CalConnect { mail_account_id: Some(id), url: None, username: None, password: None, allow_invalid_certs: false };

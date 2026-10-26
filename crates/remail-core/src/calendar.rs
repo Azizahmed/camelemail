@@ -113,8 +113,8 @@ pub(crate) fn upgrade(conn: &rusqlite::Connection) -> Result<()> {
 pub const KIND_CALDAV: &str = "caldav";
 pub const KIND_ICS: &str = "ics";
 pub const KIND_GRAPH: &str = "graph";
-/// Setting: Microsoft mail accounts whose Outlook calendars were disconnected
-/// (so they aren't connected again by themselves).
+/// Setting: mail accounts (Microsoft or Google) whose calendars were
+/// disconnected, so they aren't connected again by themselves.
 pub(crate) const OUTLOOK_OFF: &str = "cal_outlook_off";
 const DAY_MS: i64 = 86_400_000;
 /// `span_end` of objects that repeat forever.
@@ -740,6 +740,13 @@ impl Engine {
                     return self.connect_outlook_calendar(mid, true).await;
                 }
                 if acc.auth == crate::oauth::GOOGLE {
+                    // Asked for: it may connect by itself again from now on.
+                    let mut off: Vec<String> = self.store().setting(OUTLOOK_OFF).unwrap_or_default();
+                    if off.contains(&acc.id) {
+                        off.retain(|m| *m != acc.id);
+                        self.store().set_setting(OUTLOOK_OFF, &off)?;
+                        self.mark_dirty(sections::CALENDARS);
+                    }
                     return self.connect_google_calendar(&acc).await;
                 }
                 if host.ends_with("office365.com") || host.ends_with("outlook.com") {
@@ -1171,7 +1178,7 @@ impl Engine {
 
     pub fn cal_remove_account(&self, id: &str) -> Result<()> {
         let row = self.store().cal_account_row(id)?;
-        if let Some(mail) = row.as_ref().filter(|r| r.kind == KIND_GRAPH).and_then(|r| r.mail_account_id.clone()) {
+        if let Some(mail) = row.as_ref().and_then(|r| r.mail_account_id.clone()) {
             // Don't connect it again by itself.
             let mut off: Vec<String> = self.store().setting(OUTLOOK_OFF).unwrap_or_default();
             if !off.contains(&mail) {

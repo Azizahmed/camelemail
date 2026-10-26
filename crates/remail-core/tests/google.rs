@@ -86,6 +86,14 @@ async fn google_sign_in() {
     let changed = NewAccount { email: account.email.clone(), display_name: "Me".into(), username: String::new(), password: String::new(), imap: imap.clone(), smtp: smtp.clone(), allow_invalid_certs: false };
     engine.update_account(&id, changed).await.unwrap();
     assert!(seen.lock().unwrap().contains(&"gat-2".to_string()));
+    // Its calendars weren't found the first time: a fresh start looks again.
+    for _ in 0..50 {
+        if dav_auth.lock().unwrap().iter().any(|a| a == "Bearer gat-2") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(dav_auth.lock().unwrap().iter().any(|a| a == "Bearer gat-2"), "{:?}", dav_auth.lock().unwrap());
 
     // Signing in again as another Google account is refused; as the same one it works.
     let other = engine.reauthorize_account(&id, google_browser(idp.clone(), "code-2", "me@gmail.com", "sub-other")).await.unwrap_err().to_string();
