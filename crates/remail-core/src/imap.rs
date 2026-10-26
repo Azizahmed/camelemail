@@ -28,6 +28,27 @@ const UID_SET_MAX_LEN: usize = 4000;
 #[error("authentication failed: {0}")]
 pub struct AuthError(pub String);
 
+/// The server took the sign-in but won't open the mailbox (Exchange Online
+/// answers `User is authenticated but not connected` when IMAP is switched off
+/// for it, or the mailbox doesn't exist yet). Signing in again won't help, so
+/// this is not an authentication error.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct MailboxUnavailable(pub String);
+
+/// The server's own words from a NO/BAD reply: async-imap renders it as
+/// `code: None, info: Some("…")`.
+fn server_text(msg: &str) -> String {
+    match msg.split_once("info: Some(\"") {
+        Some((_, rest)) => rest.rsplit_once("\")").map_or(rest, |(t, _)| t).to_string(),
+        None => msg.to_string(),
+    }
+}
+
+fn mailbox_unavailable(msg: &str) -> bool {
+    msg.to_ascii_lowercase().contains("authenticated but not connected")
+}
+
 #[derive(Debug)]
 pub enum MaybeTls {
     Plain(TcpStream),
@@ -517,7 +538,10 @@ impl ImapConn {
             Err(_) => bail!("login timed out"),
             Ok(Err((e, _))) => match e {
                 async_imap::error::Error::No(msg) | async_imap::error::Error::Bad(msg) => {
-                    return Err(AuthError(msg).into())
+                    if matches!(login, Login::OAuth(_)) && mailbox_unavailable(&msg) {
+                        return Err(MailboxUnavailable(server_text(&msg)).into());
+                    }
+                    return Err(AuthError(msg).into());
                 }
                 other => return Err(anyhow!(other).context("login failed")),
             },
@@ -859,6 +883,12 @@ mod tests {
 
     fn folder(path: &str, special: Option<&'static str>) -> RemoteFolder {
         RemoteFolder { path: path.into(), display: decode_utf7(path), delimiter: Some("/".into()), special_use: special, selectable: true }
+    }
+
+    #[test]
+    fn server_text_strips_the_debug_wrapper() {
+        assert_eq!(server_text(r#"code: None, info: Some("User is authenticated but not connected.")"#), "User is authenticated but not connected.");
+        assert_eq!(server_text("plain words"), "plain words");
     }
 
     #[test]

@@ -348,6 +348,12 @@ pub fn friendly_error(e: &anyhow::Error) -> String {
     if let Some(s) = e.downcast_ref::<oauth::SignInRequired>() {
         return s.0.clone();
     }
+    if let Some(m) = e.chain().find_map(|c| c.downcast_ref::<imap::MailboxUnavailable>()) {
+        return format!(
+            "The mail server accepted the sign-in but won't open the mailbox (\"{}\"). Turn on IMAP for it: in Outlook on the web, Settings → Mail → Forwarding and IMAP → \"Let devices and apps use IMAP\". If the mailbox was never opened in Outlook, open it there once. Then try again in a few minutes.",
+            m.0.trim().trim_end_matches('.')
+        );
+    }
     if imap::is_auth_error(e) {
         return "The server rejected the username or password. Many providers (Gmail, iCloud, Yahoo) need an app password.".into();
     }
@@ -2905,9 +2911,12 @@ async fn connect(inner: &Inner, account: &Account) -> Result<ImapConn> {
         Err(e) if imap::is_auth_error(&e) => match &login {
             Login::OAuth(failed) => {
                 // A token the server no longer takes: get a new one and try once more.
+                // Keep the server's own wording in the log: the user-facing message below is generic.
+                tracing::warn!("{}: mail server rejected the sign-in token, retrying with a fresh one: {e:#}", account.email);
                 forget_token(inner, &account.id, failed);
                 ImapConn::connect(account, &login_for(inner, account).await?).await.map_err(|e| {
                     if imap::is_auth_error(&e) {
+                        tracing::warn!("{}: mail server rejected a fresh sign-in token too: {e:#}", account.email);
                         let name = provider_name(&account.auth);
                         oauth::SignInRequired(format!("{name} no longer accepts this account's sign-in. Sign in again.")).into()
                     } else {
@@ -4041,6 +4050,11 @@ mod tests {
         assert!(friendly_error(&e).contains("app password"), "{}", friendly_error(&e));
         let e: anyhow::Error = SendError::Auth("535".into()).into();
         assert_eq!(friendly_error(&e), "The SMTP server rejected the username or password.");
+        // A mailbox that takes the sign-in but has IMAP off is neither a password problem nor a reason to sign in again.
+        let e: anyhow::Error = imap::MailboxUnavailable("User is authenticated but not connected.".into()).into();
+        let m = friendly_error(&e);
+        assert!(m.contains("authenticated but not connected") && m.contains("Forwarding and IMAP") && !m.contains("app password"), "{m}");
+        assert!(!imap::is_auth_error(&e));
         // Times that aren't HH:MM fall back to the defaults.
         let t = AppSettings { snooze_morning: "8:30".into(), snooze_evening: "19:15".into(), ..Default::default() }.snooze_times();
         assert_eq!(t.morning, presets::SnoozeTimes::default().morning);
