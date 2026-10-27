@@ -38,6 +38,9 @@ regex = "1"
 once_cell = "1"
 base64 = "0.22"
 ring = "0.17"
+# Turns the Camel Mail password into keys on the device (docs/platform/zero-knowledge.md).
+argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
+zeroize = "1"
 remail-proto = { path = "../remail-proto" }
 # Change notices from the Remail server (TLS is set up with the same rustls config as IMAP).
 tokio-tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }

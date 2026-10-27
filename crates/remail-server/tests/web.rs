@@ -1,4 +1,5 @@
-//! The pages e-mail links open: opening one changes nothing, the form does.
+//! The pages e-mail links open: opening one changes nothing, the form does;
+//! the reset page only shows the code (the password is chosen in the app).
 
 mod common;
 
@@ -46,19 +47,18 @@ async fn verify_and_reset_pages() {
     let html = post_form(&s, "/verify", &[("t", &t), ("lang", "en")]).await;
     assert!(html.contains("not valid or has expired"));
 
-    // Reset: the page is a form; weak or mismatched passwords keep the form.
+    // Reset: the page shows the code to paste in the app, and takes no password.
     let r = s.post("/auth/reset/request", json!({"email": email}), None).await;
     assert_eq!(r.status, 202);
     let t = s.mailed_token(email, "reset").await;
     let (_, _, html) = get_page(&s, &format!("/reset?t={t}&lang=ar"), None).await;
-    assert!(html.contains(r#"type="password""#) && html.contains(r#"dir="rtl""#));
-    let html = post_form(&s, "/reset", &[("t", &t), ("password", "a-new-pass-phrase-1"), ("confirm", "other")]).await;
-    assert!(html.contains("don&#39;t match") && html.contains(r#"name="password""#));
-    let html = post_form(&s, "/reset", &[("t", &t), ("password", "password12"), ("confirm", "password12")]).await;
-    assert!(html.contains("stronger password") && html.contains(r#"name="password""#), "{html}");
+    assert!(html.contains(&format!("<code>{t}</code>")) && html.contains(r#"dir="rtl""#), "{html}");
+    assert!(!html.contains(r#"type="password""#) && !html.contains("<form"));
+    let res = s.http.post(format!("{}/reset", s.url)).form(&[("t", t.as_str()), ("password", "violet canyon lamp ninety")]).send().await.unwrap();
+    assert!(res.status().is_client_error(), "no password goes to the web page: {}", res.status());
+    // The code still works in the app.
     let new = "violet canyon lamp ninety";
-    let html = post_form(&s, "/reset", &[("t", &t), ("password", new), ("confirm", new)]).await;
-    assert!(html.contains("Password changed"), "{html}");
+    assert_eq!(s.post("/auth/reset", json!({"token": t, "password": new}), None).await.status, 204);
     assert_eq!(s.login(email, PASSWORD, "Laptop").await.code(), "invalid_credentials");
     assert_eq!(s.login(email, new, "Laptop").await.status, 200);
 

@@ -22,6 +22,7 @@ mod http;
 pub mod mapping;
 mod notices;
 mod sync;
+mod vault;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -100,6 +101,17 @@ impl std::fmt::Display for CloudError {
 
 impl std::error::Error for CloudError {}
 
+/// The proof a password gives with an account's key settings (from
+/// `POST /v1/auth/prelogin`), for clients that sign in without `Cloud`.
+pub fn password_proof(password: &str, kdf: &Kdf) -> Result<String, CloudError> {
+    Ok(vault::derive(password, kdf)?.proof)
+}
+
+/// The password didn't unwrap the vault key (checked here: the server can't).
+fn wrong_password() -> CloudError {
+    CloudError::new("invalid_credentials", "Wrong password.")
+}
+
 impl From<anyhow::Error> for CloudError {
     fn from(e: anyhow::Error) -> CloudError {
         match e.downcast::<CloudError>() {
@@ -141,6 +153,29 @@ pub struct CloudStatus {
     /// The server can't be reached (the cached setup is in use).
     pub offline: bool,
     pub progress: Option<Progress>,
+    /// Whether this device can read and write the synced mailbox sign-ins.
+    pub vault: VaultState,
+}
+
+/// Mailbox sign-ins sync end-to-end encrypted with the account's vault key,
+/// which the Camel Mail password unlocks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum VaultState {
+    SignedOut,
+    /// This device holds the vault key.
+    Ready,
+    /// The password is needed once on this device: to unlock the vault key,
+    /// or to convert an account that doesn't have one yet.
+    Locked,
+}
+
+/// A sign-in waiting for its tokens (a second step may come in between).
+enum PendingVault {
+    /// Converting the account: this vault key goes with the sign-in.
+    Have(vault::VaultKey),
+    /// The password's keys, to unwrap the vault key the tokens bring.
+    Unwrap(vault::Keys),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -301,6 +336,8 @@ struct State {
     progress: Option<Progress>,
     org: Option<OrgConfigResponse>,
     providers: Option<Vec<ProviderOption>>,
+    /// The id of the vault key this device holds.
+    device_vault: Option<String>,
 }
 
 pub(crate) struct CloudInner {
@@ -333,6 +370,7 @@ pub(crate) struct CloudInner {
     /// session drops its results.
     epoch: AtomicU64,
     link: Arc<Link>,
+    pending_vault: Mutex<Option<PendingVault>>,
 }
 
 /// The engine's way back to the server (it holds this weakly).
@@ -406,6 +444,7 @@ impl Cloud {
             org_stale: AtomicBool::new(true),
             epoch: AtomicU64::new(0),
             link: Arc::new(Link(weak.clone())),
+            pending_vault: Mutex::new(None),
         });
         let link: Arc<dyn CloudLink> = inner.link.clone();
         engine.set_cloud_link(Arc::downgrade(&link));
@@ -440,6 +479,7 @@ impl Cloud {
         c.update(|st| {
             st.server = store.setting(SERVER_KEY).or_else(|| c.opts.default_server.clone());
             st.me = session.as_ref().and_then(|_| store.setting(ME_KEY));
+            st.device_vault = session.as_ref().and_then(|_| vault::load(&c.engine)).map(|k| k.id.clone());
             st.session = session;
             st.org = org;
             st.providers = providers;
@@ -490,8 +530,14 @@ impl Cloud {
         Ok(meta)
     }
 
-    pub async fn signup(&self, req: SignupRequest) -> Result<SignupResponse, CloudError> {
+    /// The password never leaves this device: the server gets its proof
+    /// and the new account's vault key, wrapped with it.
+    pub async fn signup(&self, mut req: SignupRequest) -> Result<SignupResponse, CloudError> {
         let server = self.inner.chosen_server()?;
+        vault::check_new_password(&req.password, &req.email)?;
+        let (proof, setup) = vault::new_secret(&req.password, &vault::new_vault_key()).await?;
+        req.password = proof;
+        req.vault = Some(setup);
         self.inner.api.call(Method::POST, &server, "/v1/auth/signup", None, Some(&req)).await
     }
 
@@ -500,13 +546,41 @@ impl Cloud {
         self.inner.api.call(Method::POST, &server, "/v1/auth/verify", None, Some(&TokenRequest { token: token.into() })).await
     }
 
+    /// Signs in with the password's proof, and unlocks the vault key with
+    /// the password. An account that still signs in with its password is
+    /// converted on the way (it sends the password once more).
     pub async fn login(&self, email: &str, password: &str) -> Result<LoginResult, CloudError> {
         let c = &self.inner;
         let server = c.chosen_server()?;
-        let req = LoginRequest { email: email.trim().into(), password: password.into(), device: c.device.clone() };
-        match c.api.call::<LoginResponse>(Method::POST, &server, "/v1/auth/login", None, Some(&req)).await? {
-            LoginResponse::Tokens(t) => Ok(LoginResult::Ok { me: Box::new(c.after_sign_in(server, t).await?) }),
-            LoginResponse::Challenge(ch) => Ok(LoginResult::TwoFactor { challenge: ch.challenge, setup_required: ch.setup_required }),
+        let email = email.trim();
+        let pre: Result<PreloginResponse, CloudError> =
+            c.api.call(Method::POST, &server, "/v1/auth/prelogin", None, Some(&PreloginRequest { email: email.into() })).await;
+        let (secret, upgrade, pending) = match pre {
+            Ok(PreloginResponse { kdf: Some(kdf) }) => {
+                let keys = vault::derive_blocking(password, &kdf).await?;
+                (keys.proof.clone(), None, Some(PendingVault::Unwrap(keys)))
+            }
+            Ok(PreloginResponse { kdf: None }) => {
+                let vk = vault::new_vault_key();
+                let (proof, setup) = vault::new_secret(password, &vk).await?;
+                (password.to_string(), Some(VaultUpgrade { proof, vault: setup }), Some(PendingVault::Have(vk)))
+            }
+            // A server from before end-to-end encryption.
+            Err(e) if e.code == "not_found" => (password.to_string(), None, None),
+            Err(e) => return Err(e),
+        };
+        *c.pending_vault.lock().unwrap() = pending;
+        let req = LoginRequest { email: email.into(), password: secret, device: c.device.clone(), upgrade };
+        match c.api.call::<LoginResponse>(Method::POST, &server, "/v1/auth/login", None, Some(&req)).await {
+            Ok(LoginResponse::Tokens(t)) => {
+                c.take_vault(&t)?;
+                Ok(LoginResult::Ok { me: Box::new(c.after_sign_in(server, t).await?) })
+            }
+            Ok(LoginResponse::Challenge(ch)) => Ok(LoginResult::TwoFactor { challenge: ch.challenge, setup_required: ch.setup_required }),
+            Err(e) => {
+                c.pending_vault.lock().unwrap().take();
+                Err(e)
+            }
         }
     }
 
@@ -515,7 +589,33 @@ impl Cloud {
         let server = c.chosen_server()?;
         let req = TwoFactorRequest { challenge: challenge.into(), code: code.trim().into() };
         let t: Tokens = c.api.call(Method::POST, &server, "/v1/auth/login/2fa", None, Some(&req)).await?;
+        c.take_vault(&t)?;
         c.after_sign_in(server, t).await
+    }
+
+    /// Unlocks this device's synced mailbox sign-ins with the Camel Mail
+    /// password (a device signed in before they were encrypted end to end,
+    /// or that lost its vault key). An account without a vault key gets one.
+    pub async fn unlock(&self, password: &str) -> Result<(), CloudError> {
+        let c = &self.inner;
+        let have: Option<VaultSetup> = c.authed(Method::GET, "/v1/me/vault", None::<&()>).await?;
+        let vk = match have {
+            Some(setup) => {
+                let keys = vault::derive_blocking(password, &setup.kdf).await?;
+                vault::unwrap(&keys, &setup).ok_or_else(wrong_password)?
+            }
+            None => {
+                let vk = vault::new_vault_key();
+                let (proof, setup) = vault::new_secret(password, &vk).await?;
+                let req = VaultConvert { password: password.into(), upgrade: VaultUpgrade { proof, vault: setup } };
+                let _: VaultSetup = c.authed(Method::POST, "/v1/me/vault", Some(&req)).await?;
+                vk
+            }
+        };
+        c.keep_vault(&vk)?;
+        self.me().await?;
+        c.wake.notify_one();
+        Ok(())
     }
 
     /// Sign this device out: the server forgets it, and this computer's
@@ -541,9 +641,13 @@ impl Cloud {
         self.inner.api.call(Method::POST, &server, "/v1/auth/reset/request", None, Some(&ResetRequest { email: email.trim().into() })).await
     }
 
+    /// A forgotten password: a new vault key goes with the new one (the old
+    /// key went with the old password, so mailboxes need signing in again).
     pub async fn reset_password(&self, token: &str, password: &str) -> Result<(), CloudError> {
         let server = self.inner.chosen_server()?;
-        let req = ResetPassword { token: token.into(), password: password.into() };
+        vault::check_new_password(password, "")?;
+        let (proof, setup) = vault::new_secret(password, &vault::new_vault_key()).await?;
+        let req = ResetPassword { token: token.into(), password: proof, vault: Some(setup) };
         self.inner.api.call(Method::POST, &server, "/v1/auth/reset", None, Some(&req)).await
     }
 
@@ -559,8 +663,27 @@ impl Cloud {
         Ok(me)
     }
 
+    /// The vault key stays; only its wrapping changes, so synced mailbox
+    /// sign-ins stay readable. (An account without one gets one here.)
     pub async fn change_password(&self, current: &str, new: &str) -> Result<(), CloudError> {
-        self.inner.authed(Method::POST, "/v1/me/password", Some(&ChangePassword { current: current.into(), new: new.into() })).await
+        let c = &self.inner;
+        let email = c.state.lock().unwrap().me.as_ref().map(|m| m.email.clone()).unwrap_or_default();
+        vault::check_new_password(new, &email)?;
+        let have: Option<VaultSetup> = c.authed(Method::GET, "/v1/me/vault", None::<&()>).await?;
+        let (current_secret, vk) = match &have {
+            Some(setup) => {
+                let keys = vault::derive_blocking(current, &setup.kdf).await?;
+                (keys.proof.clone(), vault::unwrap(&keys, setup).ok_or_else(wrong_password)?)
+            }
+            None => (current.to_string(), vault::new_vault_key()),
+        };
+        let (proof, setup) = vault::new_secret(new, &vk).await?;
+        let req = ChangePassword { current: current_secret, new: proof, vault: Some(setup) };
+        c.authed::<()>(Method::POST, "/v1/me/password", Some(&req)).await?;
+        c.keep_vault(&vk)?;
+        self.me().await?;
+        c.wake.notify_one();
+        Ok(())
     }
 
     /// Start setting up two-step sign-in. With a challenge: during a sign-in
@@ -586,6 +709,7 @@ impl Cloud {
                 let server = c.chosen_server()?;
                 let codes: BackupCodes = c.api.call(Method::POST, &server, "/v1/me/2fa/enable", None, Some(&req)).await?;
                 if let Some(t) = codes.tokens.clone() {
+                    c.take_vault(&t)?;
                     c.after_sign_in(server, t).await?;
                 }
                 codes
@@ -597,7 +721,14 @@ impl Cloud {
     }
 
     pub async fn totp_disable(&self, password: &str, code: &str) -> Result<(), CloudError> {
-        self.inner.authed(Method::POST, "/v1/me/2fa/disable", Some(&TotpDisable { password: password.into(), code: code.trim().into() })).await
+        let c = &self.inner;
+        // An account with a vault key confirms with the password's proof.
+        let have: Option<VaultSetup> = c.authed(Method::GET, "/v1/me/vault", None::<&()>).await?;
+        let password = match have {
+            Some(setup) => vault::derive_blocking(password, &setup.kdf).await?.proof,
+            None => password.to_string(),
+        };
+        c.authed(Method::POST, "/v1/me/2fa/disable", Some(&TotpDisable { password, code: code.trim().into() })).await
     }
 
     pub async fn devices(&self) -> Result<Vec<Device>, CloudError> {
@@ -758,7 +889,38 @@ impl CloudInner {
             phase: st.phase.unwrap_or(Phase::SignedOut),
             offline: st.offline,
             progress: st.progress.clone(),
+            vault: match (&st.session, st.me.as_ref().and_then(|m| m.vault_key_id.as_ref())) {
+                (None, _) => VaultState::SignedOut,
+                (Some(_), Some(id)) if st.device_vault.as_ref() == Some(id) => VaultState::Ready,
+                (Some(_), _) => VaultState::Locked,
+            },
         }
+    }
+
+    /// Keeps the vault key a sign-in brought (unwrapped with the password's
+    /// keys, or the one made to convert the account).
+    fn take_vault(&self, t: &Tokens) -> Result<(), CloudError> {
+        let pending = self.pending_vault.lock().unwrap().take();
+        let Some(setup) = &t.vault else { return Ok(()) };
+        let vk = match pending {
+            Some(PendingVault::Have(vk)) if vk.id == setup.key_id => vk,
+            Some(PendingVault::Unwrap(keys)) => match vault::unwrap(&keys, setup) {
+                Some(vk) => vk,
+                None => {
+                    // The proof was right, so this shouldn't happen; the device asks for the password later.
+                    tracing::warn!("the vault key didn't unwrap with this password");
+                    return Ok(());
+                }
+            },
+            _ => return Ok(()),
+        };
+        self.keep_vault(&vk)
+    }
+
+    fn keep_vault(&self, vk: &vault::VaultKey) -> Result<(), CloudError> {
+        vault::save(&self.engine, vk)?;
+        self.update(|st| st.device_vault = Some(vk.id.clone()));
+        Ok(())
     }
 
     /// Change the state, and tell the UI when what it sees changed.
@@ -1098,6 +1260,8 @@ impl CloudInner {
         if let Err(e) = self.engine.secrets().delete(SESSION_ID) {
             tracing::warn!("couldn't delete the session: {e:#}");
         }
+        vault::forget(&self.engine);
+        self.pending_vault.lock().unwrap().take();
         if let Err(e) = self.engine.wipe_setup() {
             tracing::warn!("couldn't remove the synced setup: {e:#}");
         }
@@ -1117,6 +1281,7 @@ impl CloudInner {
             st.offline = false;
             st.org = None;
             st.providers = None;
+            st.device_vault = None;
         });
         self.sink.cloud_event(CloudEvent::SignedOut { reason });
     }

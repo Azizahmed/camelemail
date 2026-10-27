@@ -47,9 +47,10 @@ pub(crate) enum Mode {
 const PUT_ATTEMPTS: u32 = 5;
 
 /// Sections applied in full every time (they may wait for mail or accounts
-/// that arrive later); the others only where the merge changed something.
+/// that arrive later, or a sealed sign-in for the vault key this device gets
+/// when it's unlocked); the others only where the merge changed something.
 fn always_full(section: &str) -> bool {
-    matches!(section, sections::SNOOZES | sections::SIGNATURES | sections::CALENDARS)
+    matches!(section, sections::SNOOZES | sections::SIGNATURES | sections::CALENDARS) || section.starts_with(sections::CRED_PREFIX)
 }
 
 impl CloudInner {

@@ -66,11 +66,16 @@ pub mod account {
 
 /// Fields of a `cred:*` section's singleton record.
 pub mod cred {
-    /// `password` | `oauth`
+    /// `password` | `oauth` | `sealed`
     pub const KIND: &str = "kind";
     pub const PASSWORD: &str = "password";
     /// The OAuth grant as JSON: `{provider, clientId, refreshToken, subject}`.
     pub const GRANT: &str = "grant";
+    /// `sealed`: one of the above, end-to-end encrypted with the account's
+    /// vault key (docs/platform/zero-knowledge.md). base64(nonce ‖ ciphertext).
+    pub const SEALED: &str = "sealed";
+    /// `sealed`: the id of the vault key it's sealed with.
+    pub const VAULT_KEY: &str = "vk";
 }
 
 /// Why the server refused a section write.
@@ -79,6 +84,18 @@ pub enum Violation {
     ProviderNotAllowed { record: String, provider: String },
     ImapHostNotAllowed { record: String, host: String },
     Malformed(String),
+}
+
+/// An account that keeps mailbox sign-ins end-to-end encrypted takes them
+/// sealed only: a credential section may not hold a readable password or
+/// grant (an app from before would otherwise upload them in the clear).
+pub fn check_sealed_credentials(doc: &SectionDoc) -> Result<(), Violation> {
+    for (id, r) in doc.live() {
+        if [cred::PASSWORD, cred::GRANT].iter().any(|f| r.get(f).is_some_and(|v| !v.is_null())) {
+            return Err(Violation::Malformed(format!("{id}: this account keeps mailbox sign-ins end-to-end encrypted; update Camel Mail")));
+        }
+    }
+    Ok(())
 }
 
 /// Checks an `accounts` document against the org's allow-list. Only live

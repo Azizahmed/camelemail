@@ -32,6 +32,13 @@ use crate::notices::HubEvent;
 /// module can make one, and only it can therefore ask for a user data key.
 pub struct SyncPath(());
 
+/// Deletes a user's sealed mailbox sign-ins (`cred:*`) when nobody can open
+/// them any more: a password reset made a new vault key. Nothing is decrypted.
+pub async fn drop_credentials(db: impl sqlx::PgExecutor<'_>, user_id: &str) -> sqlx::Result<()> {
+    sqlx::query("delete from user_sections where user_id = $1 and section like 'cred:%'").bind(user_id).execute(db).await?;
+    Ok(())
+}
+
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/sections", get(index))
@@ -178,6 +185,14 @@ async fn put_section(
         let mut res = (axum::http::StatusCode::PRECONDITION_FAILED, ApiJson(body)).into_response();
         res.headers_mut().insert(header::ETAG, etag(current_version));
         return Ok(res);
+    }
+
+    // Sealed sign-ins only, once the account encrypts them end to end.
+    if id.starts_with(sections::CRED_PREFIX) {
+        let sealed: bool = sqlx::query_scalar("select kdf is not null from users where id = $1").bind(&ctx.user_id).fetch_one(&mut *tx).await?;
+        if sealed {
+            sections::check_sealed_credentials(&doc).map_err(violation)?;
+        }
     }
 
     // The allow-list holds for every client, UI or not.

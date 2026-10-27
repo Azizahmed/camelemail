@@ -10,6 +10,7 @@ const status = (phase: CloudPhase): CloudStatus => ({
   phase,
   offline: false,
   progress: null,
+  vault: phase === "signedOut" ? "signedOut" : "ready",
 });
 
 describe("gate", () => {

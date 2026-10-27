@@ -29,6 +29,7 @@ export const ERROR_CODES = [
   "licence_expired",
   "licence_invalid",
   "seat_limit",
+  "update_required",
   "unavailable",
   "internal",
 ] as const;

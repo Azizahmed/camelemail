@@ -21,8 +21,14 @@
 //! f. Microsoft: A adds an account, B gets it and its credential, B's token
 //!    refresh (rotating) writes only `cred:<id>` while A edits the account.
 //! g. A signs B out: B's setup and credentials are wiped.
-//! h. A password reset signs A out everywhere; signing in again finds the
-//!    setup intact.
+//! h. Changing the password keeps the synced sign-ins readable (a new device
+//!    gets them); a password reset signs A out everywhere and, the vault key
+//!    being new, drops them: signing in again finds the rest of the setup.
+//! j. An account from before end-to-end encryption converts at sign-in; a
+//!    device without the vault key is locked until the password unlocks it.
+//!
+//! Throughout, mailbox sign-ins reach the server sealed with the vault key,
+//! which only the password unwraps (docs/platform/zero-knowledge.md).
 //!
 //! Needs `REMAIL_PLATFORM_IT=1`, `REMAIL_TEST_DATABASE_URL`
 //! (`scripts/test-postgres.sh`) and GreenMail (`scripts/test-server.sh`):
@@ -42,9 +48,9 @@ use std::time::{Duration, Instant};
 use axum::routing::post;
 use axum::Router;
 use common::*;
-use remail_core::cloud::{Cloud, CloudEvent, CloudOptions, CloudSink, LoginResult, Phase, SESSION_ID};
+use remail_core::cloud::{password_proof, Cloud, CloudEvent, CloudOptions, CloudSink, LoginResult, Phase, VaultState, SESSION_ID};
 use remail_core::engine::{ThreadRef, UiPrefsPatch};
-use remail_core::proto::api::{DeviceInfo, SignupRequest};
+use remail_core::proto::api::{DeviceInfo, Kdf, SignupRequest};
 use remail_core::proto::org::OrgConfig;
 use remail_core::proto::sections::account;
 use remail_core::proto::sync::{SectionDoc, Stamp};
@@ -59,6 +65,7 @@ use tokio::sync::watch;
 const EMAIL: &str = "aziz@remail.test";
 const PASSWORD: &str = "correct horse battery staple";
 const NEW_PASSWORD: &str = "tangerine elephant quarterback";
+const CHANGED_PASSWORD: &str = "marble orchard twilight sixty";
 
 // ----------------------------------------------------------------------------
 // Devices
@@ -225,12 +232,21 @@ async fn mailed_token(server: &TestServer, to: &str, kind: &str) -> String {
     }
 }
 
+/// The proof `password` gives for `email` (what an app sends instead of the password).
+async fn proof_for(server: &TestServer, email: &str, password: &str) -> String {
+    let r: Value =
+        reqwest::Client::new().post(format!("{}/v1/auth/prelogin", server.url)).json(&json!({ "email": email })).send().await.unwrap().json().await.unwrap();
+    let kdf: Kdf = serde_json::from_value(r["kdf"].clone()).unwrap_or_else(|_| panic!("no key settings for {email}: {r}"));
+    password_proof(password, &kdf).unwrap()
+}
+
 /// Signs in over plain HTTP (a client that isn't Remail) with a backup code.
 async fn raw_sign_in(server: &TestServer, password: &str, backup_code: &str) -> String {
     let http = reqwest::Client::new();
+    let proof = proof_for(server, EMAIL, password).await;
     let r: Value = http
         .post(format!("{}/v1/auth/login", server.url))
-        .json(&json!({"email": EMAIL, "password": password, "device": {"name": "curl", "platform": "linux", "appVersion": "0"}}))
+        .json(&json!({"email": EMAIL, "password": proof, "device": {"name": "curl", "platform": "linux", "appVersion": "0"}}))
         .send()
         .await
         .unwrap()
@@ -342,10 +358,12 @@ async fn platform_end_to_end() {
     let a = device("Device A", &server.url).await;
     let signup = a
         .cloud
-        .signup(SignupRequest { name: "Aziz".into(), email: EMAIL.into(), password: PASSWORD.into(), invite: None, locale: Some("en".into()) })
+        .signup(SignupRequest { name: "Aziz".into(), email: EMAIL.into(), password: PASSWORD.into(), invite: None, vault: None, locale: Some("en".into()) })
         .await
         .unwrap();
     assert_eq!(signup.verify, "email");
+    let pre: Value = reqwest::Client::new().post(format!("{}/v1/auth/prelogin", server.url)).json(&json!({"email": EMAIL})).send().await.unwrap().json().await.unwrap();
+    assert_eq!(pre["kdf"]["alg"], "argon2id", "the account signs in with a proof from the start");
     // Not before the address is confirmed.
     let early = a.cloud.login(EMAIL, PASSWORD).await.unwrap_err();
     assert_eq!(early.code, "email_not_verified", "{early}");
@@ -358,6 +376,7 @@ async fn platform_end_to_end() {
     }
     a.wait_phase(Phase::Ready, 20).await;
     assert!(a.engine.gate_open());
+    assert_eq!(a.cloud.status().vault, VaultState::Ready, "A holds the vault key");
 
     // The organisation allows IMAP with any server (an admin's `org config set`).
     let org = server.org_of(EMAIL).await.unwrap();
@@ -426,6 +445,7 @@ async fn platform_end_to_end() {
     b.cloud.login_2fa(&challenge, &TestServer::totp_code(&totp.secret, now_secs() + 30).unwrap()).await.unwrap();
     assert_eq!(b.cloud.status().phase, Phase::Syncing);
     b.wait_phase(Phase::Ready, 30).await;
+    assert_eq!(b.cloud.status().vault, VaultState::Ready, "the password unwrapped the vault key on B too");
     assert!(b.events.has(r#""phase":"syncing""#), "B showed the first sync");
     assert!(b.engine.gate_open());
     let b_acc = b.account(&acc.id).expect("B has the mailbox under the same id");
@@ -586,13 +606,19 @@ async fn platform_end_to_end() {
     let refreshes = idp.lock().unwrap().token_requests.iter().filter(|(g, s)| g == "refresh_token" && s.contains("IMAP")).count();
     assert_eq!(refreshes, 1, "one refresh, no loop");
     assert!(seen.lock().unwrap().contains(&"at-2".to_string()), "B's worker signed in with the refreshed token");
+    // What the server holds (and hands any signed-in client) is sealed: no grant, no token.
+    let cred: Value =
+        http.get(format!("{}/v1/sections/cred:{}", server.url, ms.id)).bearer_auth(&raw_token).send().await.unwrap().json().await.unwrap();
+    let cred = cred["doc"].to_string();
+    assert!(cred.contains(r#""sealed""#) && !cred.contains("rt-2") && !cred.contains("refreshToken") && !cred.contains("client-123"), "{cred}");
 
     // ------------------------------------------------------------------
     // g. A signs B out
     // ------------------------------------------------------------------
     a.cloud.revoke_device(&dev_b).await.unwrap();
     b.wait_phase(Phase::SignedOut, 10).await;
-    assert!(b.events.has(r#""kind":"signedOut","reason":"revoked""#), "{:?}", b.events.0.lock().unwrap());
+    // (The phase changes just before the event goes out.)
+    until("B to hear it was signed out by another device", 5, || b.events.has(r#""kind":"signedOut","reason":"revoked""#)).await;
     assert!(b.engine.accounts().unwrap().is_empty(), "B's synced setup is gone");
     assert!(b.engine.templates().unwrap().is_empty() && b.engine.signatures().unwrap().is_empty());
     assert_eq!(b.secret(&ms.id), None, "B's credentials are gone");
@@ -604,8 +630,22 @@ async fn platform_end_to_end() {
     assert_eq!(a.cloud.status().phase, Phase::Ready);
 
     // ------------------------------------------------------------------
-    // h. Password reset: every session ends, the data stays
+    // h. Changing the password keeps the sign-ins; a reset drops them
     // ------------------------------------------------------------------
+    a.cloud.change_password(PASSWORD, CHANGED_PASSWORD).await.unwrap();
+    assert_eq!(a.cloud.status().vault, VaultState::Ready);
+    let c = device("Device C", &server.url).await;
+    assert_eq!(c.cloud.login(EMAIL, PASSWORD).await.unwrap_err().code, "invalid_credentials");
+    let challenge = match c.cloud.login(EMAIL, CHANGED_PASSWORD).await.unwrap() {
+        LoginResult::TwoFactor { challenge, .. } => challenge,
+        other => panic!("{other:?}"),
+    };
+    c.cloud.login_2fa(&challenge, &codes.backup_codes[2]).await.unwrap();
+    c.wait_phase(Phase::Ready, 30).await;
+    until("C to get the Microsoft sign-in, sealed before the change", 15, || c.secret(&ms.id).is_some()).await;
+    assert_eq!(c.grant(&ms.id)["clientId"], "client-123");
+    c.cloud.logout().await.unwrap();
+
     let before = a.setup();
     // (A fresh sign-in has no access token yet: its first refresh rotates again.)
     idp.lock().unwrap().refresh.insert("rt-2".into(), ("at-3".into(), "rt-3".into()));
@@ -616,19 +656,26 @@ async fn platform_end_to_end() {
     a.wait_phase(Phase::SignedOut, 10).await;
     assert!(a.engine.accounts().unwrap().is_empty() && a.secret(&ms.id).is_none(), "A was signed out and wiped");
     assert!(server.live_devices(EMAIL).await.unwrap().is_empty(), "every device was signed out");
-    assert_eq!(a.cloud.login(EMAIL, PASSWORD).await.unwrap_err().code, "invalid_credentials");
+    assert_eq!(a.cloud.login(EMAIL, CHANGED_PASSWORD).await.unwrap_err().code, "invalid_credentials");
     let challenge = match a.cloud.login(EMAIL, NEW_PASSWORD).await.unwrap() {
         LoginResult::TwoFactor { challenge, .. } => challenge,
         other => panic!("{other:?}"),
     };
     a.cloud.login_2fa(&challenge, &codes.backup_codes[1]).await.unwrap();
     a.wait_phase(Phase::Ready, 30).await;
-    // (Its refresh may have rotated the token already.)
-    let now = serde_json::to_string(&a.setup()).unwrap().replace("rt-3", "rt-2");
-    assert_eq!(now, serde_json::to_string(&before).unwrap(), "the setup is intact after the reset");
+    // The new password has a new vault key: what the old one sealed is gone,
+    // so the mailbox needs signing in again. Everything else is intact.
+    let without_secrets = |v: Value| {
+        let mut v = v;
+        for acc in v["accounts"].as_array_mut().unwrap() {
+            acc.as_array_mut().unwrap().pop();
+        }
+        v
+    };
+    assert_eq!(without_secrets(a.setup()), without_secrets(before), "the setup is intact after the reset");
     assert_eq!(a.account(&ms.id).unwrap().color, "#00aa00");
-    until("A's mail to start again (refreshing the sign-in)", 15, || seen.lock().unwrap().contains(&"at-3".to_string())).await;
-    until("the rotated token to reach the server", 15, || a.grant(&ms.id)["refreshToken"] == "rt-3").await;
+    assert_eq!(a.secret(&ms.id), None, "the sealed sign-in went with the old vault key");
+    until("the mailbox to ask for signing in again", 15, || a.account(&ms.id).is_some_and(|x| x.status == AccountStatus::AuthError)).await;
 
     // ------------------------------------------------------------------
     // i. A signs itself out: the server's notice about that same sign-out
@@ -641,6 +688,45 @@ async fn platform_end_to_end() {
     let seen_events = a.events.0.lock().unwrap().clone();
     assert!(a.events.has(r#""kind":"signedOut","reason":"user""#), "{seen_events:?}");
     assert!(!a.events.has(r#""reason":"revoked""#), "{seen_events:?}");
+
+    // ------------------------------------------------------------------
+    // j. An account from before end-to-end encryption, and a locked device
+    // ------------------------------------------------------------------
+    // An old app signs up with the password itself (no vault).
+    let old_email = "before@remail.test";
+    let http = reqwest::Client::new();
+    let r = http
+        .post(format!("{}/v1/auth/signup", server.url))
+        .json(&json!({"name": "Old", "email": old_email, "password": PASSWORD}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 202);
+    let t = mailed_token(&server, old_email, "verify").await;
+    a.cloud.verify_email(&t).await.unwrap();
+    let pre: Value = http.post(format!("{}/v1/auth/prelogin", server.url)).json(&json!({"email": old_email})).send().await.unwrap().json().await.unwrap();
+    assert_eq!(pre["kdf"], Value::Null);
+    // The new app converts it while signing in.
+    let d = device("Device D", &server.url).await;
+    d.cloud.login(old_email, PASSWORD).await.unwrap();
+    d.wait_phase(Phase::Ready, 20).await;
+    assert_eq!(d.cloud.status().vault, VaultState::Ready);
+    let pre: Value = http.post(format!("{}/v1/auth/prelogin", server.url)).json(&json!({"email": old_email})).send().await.unwrap().json().await.unwrap();
+    assert_eq!(pre["kdf"]["alg"], "argon2id", "converted");
+    let acc = d.engine.add_account(greenmail_account(&format!("d{run}@remail.test"))).await;
+    // (IMAP is off for this organisation since e.; the public org of a fresh user may allow it.)
+    let synced_cred = acc.is_ok();
+    // A device without the vault key (here: it lost it; the app restarts) is
+    // locked until the password unlocks it.
+    d.secrets.delete("camel-vault-key").unwrap();
+    d.cloud.start().await.unwrap();
+    assert_eq!(d.cloud.status().vault, VaultState::Locked);
+    assert_eq!(d.cloud.unlock("not the password").await.unwrap_err().code, "invalid_credentials");
+    d.cloud.unlock(PASSWORD).await.unwrap();
+    assert_eq!(d.cloud.status().vault, VaultState::Ready);
+    if synced_cred {
+        until("D's mailbox password to stay", 10, || d.secret(&acc.as_ref().unwrap().id).is_some()).await;
+    }
 
     server.finish().await;
 }

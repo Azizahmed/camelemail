@@ -38,6 +38,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/auth/signup", post(signup))
         .route("/auth/verify", post(verify))
+        .route("/auth/prelogin", post(prelogin))
         .route("/auth/login", post(login))
         .route("/auth/login/2fa", post(login_2fa))
         .route("/auth/refresh", post(refresh))
@@ -46,6 +47,7 @@ pub fn routes() -> Router<AppState> {
         .route("/auth/reset", post(reset))
         .route("/me", get(me_get).patch(me_patch))
         .route("/me/password", post(change_password))
+        .route("/me/vault", get(vault_get).post(vault_convert))
         .route("/me/2fa/setup", post(totp_setup))
         .route("/me/2fa/enable", post(totp_enable))
         .route("/me/2fa/disable", post(totp_disable))
@@ -93,12 +95,23 @@ pub struct UserRow {
     pub disabled_at: Option<DateTime<Utc>>,
     pub failed_logins: i32,
     pub locked_until: Option<DateTime<Utc>>,
+    pub kdf: Option<sqlx::types::Json<Kdf>>,
+    pub vault_key_enc: Option<String>,
+    pub vault_key_id: Option<String>,
+}
+
+impl UserRow {
+    /// Set once the account keeps mailbox sign-ins end-to-end encrypted (it
+    /// then signs in with a password proof).
+    fn vault(&self) -> Option<VaultSetup> {
+        Some(VaultSetup { kdf: self.kdf.as_ref()?.0.clone(), key_enc: self.vault_key_enc.clone()?, key_id: self.vault_key_id.clone()? })
+    }
 }
 
 macro_rules! user_cols {
     () => {
         "id, org_id, email, name, role, locale, password_hash, email_verified_at, totp_secret_enc, \
-         totp_enabled_at, totp_last_step, disabled_at, failed_logins, locked_until"
+         totp_enabled_at, totp_last_step, disabled_at, failed_logins, locked_until, kdf, vault_key_enc, vault_key_id"
     };
 }
 
@@ -137,6 +150,7 @@ pub async fn me_for(s: &AppState, user: &UserRow) -> AppResult<Me> {
         org_name: org.name,
         totp: user.totp_enabled_at.is_some(),
         policies,
+        vault_key_id: user.vault_key_id.clone(),
     })
 }
 
@@ -151,6 +165,48 @@ fn locked(secs: u64) -> AppError {
 fn invalid_code() -> AppError {
     AppError::new(ErrorCode::InvalidCode, "That code isn't right.")
 }
+
+fn update_required() -> AppError {
+    AppError::new(
+        ErrorCode::UpdateRequired,
+        "Update Camel Mail to sign in: this account keeps your mailbox sign-ins end-to-end encrypted.",
+    )
+}
+
+/// A new secret for an account: a proof with its vault (from apps that
+/// encrypt sign-ins end to end; the server can't judge the password), or a
+/// password, which must be strong.
+fn check_new_secret(secret: &str, vault: Option<&VaultSetup>, email: &str, name: &str) -> AppResult<()> {
+    match vault {
+        Some(v) if is_proof(secret) && v.is_reasonable() => Ok(()),
+        Some(_) => Err(AppError::bad_request("Malformed password proof or vault.")),
+        None => password::check_strength(secret, email, name),
+    }
+}
+
+/// Whether `given` is the account's secret. An account that signs in with a
+/// proof answers an old app's password with `update_required`.
+async fn check_secret(user: &UserRow, given: &str) -> AppResult<bool> {
+    if user.kdf.is_some() && !is_proof(given) {
+        return Err(update_required());
+    }
+    Ok(password::verify(given, &user.password_hash).await)
+}
+
+/// Stores the secret's hash and the vault the account signs in with from now on.
+async fn set_vault(db: impl sqlx::PgExecutor<'_>, user_id: &str, hash: &str, vault: Option<&VaultSetup>) -> sqlx::Result<()> {
+    sqlx::query("update users set password_hash = $2, kdf = $3, vault_key_enc = $4, vault_key_id = $5 where id = $1")
+        .bind(user_id)
+        .bind(hash)
+        .bind(vault.map(|v| sqlx::types::Json(v.kdf.clone())))
+        .bind(vault.map(|v| v.key_enc.clone()))
+        .bind(vault.map(|v| v.key_id.clone()))
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+
 
 // ---------- sign-up ----------
 
@@ -212,14 +268,14 @@ async fn signup(
     } else {
         role
     };
-    password::check_strength(password.expose(), &email, &name)?;
+    check_new_secret(password.expose(), req.vault.as_ref(), &email, &name)?;
 
     if let Some(existing) = user_by_email(&s, &email).await? {
         if let Some(h) = &invite_hash {
             // An address nobody ever confirmed has no owner yet: it can't sign
             // in and holds no data, so an invitation for it takes it over.
             if existing.email_verified_at.is_none() && existing.org_id == org.id {
-                claim_unconfirmed(&s, ip, &existing, h, &name, &role, locale, password.expose()).await?;
+                claim_unconfirmed(&s, ip, &existing, h, &name, &role, locale, password.expose(), req.vault.as_ref()).await?;
                 return Ok((StatusCode::ACCEPTED, ApiJson(SignupResponse { verify: "none".into() })));
             }
             return Err(AppError::new(ErrorCode::EmailTaken, "There's already an account with this e-mail."));
@@ -254,6 +310,9 @@ async fn signup(
             return Err(AppError::new(ErrorCode::EmailTaken, "There's already an account with this e-mail."));
         }
         return Err(e.into());
+    }
+    if req.vault.is_some() {
+        set_vault(&mut *tx, &user_id, &hash, req.vault.as_ref()).await?;
     }
     s.env.create_key(&mut tx, crate::crypto::OwnerKind::User, &user_id, &org.id).await?;
     if let Some(h) = &invite_hash {
@@ -308,6 +367,7 @@ async fn claim_unconfirmed(
     role: &str,
     locale: &str,
     password: &str,
+    vault: Option<&VaultSetup>,
 ) -> AppResult<()> {
     crate::licence::check_seat(&s.cfg, &s.db, &s.env).await?;
     let hash = password::hash(&s.cfg, password).await?;
@@ -330,6 +390,7 @@ async fn claim_unconfirmed(
     if updated.rows_affected() != 1 {
         return Err(AppError::new(ErrorCode::EmailTaken, "There's already an account with this e-mail."));
     }
+    set_vault(&mut *tx, &user.id, &hash, vault).await?;
     // The old confirmation link must not work any more.
     sqlx::query("update auth_tokens set used_at = now() where user_id = $1 and kind = $2 and used_at is null")
         .bind(&user.id)
@@ -417,6 +478,7 @@ async fn sign_in(s: &AppState, user: &UserRow, device: &DeviceInfo, ip: Option<s
         refresh_token: issued.refresh.expose().clone(),
         device_id,
         user: me_for(s, user).await?,
+        vault: user.vault(),
     })
 }
 
@@ -470,10 +532,22 @@ async fn login(
     if let Some(until) = user.locked_until.filter(|u| *u > Utc::now()) {
         return Err(locked((until - Utc::now()).num_seconds().max(1) as u64));
     }
-    if !password::verify(password.expose(), &user.password_hash).await {
+    if !check_secret(&user, password.expose()).await? {
         count_failure(&s, &user, ip, "auth.login.fail").await?;
         return Err(invalid_credentials());
     }
+    // The first sign-in from an app that encrypts sign-ins end to end: the
+    // account keeps the proof and vault from now on.
+    let user = match req.upgrade.filter(|_| user.kdf.is_none()) {
+        Some(up) => {
+            check_new_secret(&up.proof, Some(&up.vault), &user.email, &user.name)?;
+            let hash = password::hash(&s.cfg, &up.proof).await?;
+            set_vault(&s.db, &user.id, &hash, Some(&up.vault)).await?;
+            audit::log(&s.db, Event::new("auth.vault.convert", Actor::User(&user.id)).org(&user.org_id).target(&user.id).ip(ip)).await;
+            user_by_id(&s, &user.id).await?.ok_or_else(invalid_credentials)?
+        }
+        None => user,
+    };
     if user.failed_logins > 0 || user.locked_until.is_some() {
         sqlx::query("update users set failed_logins = 0, locked_until = null where id = $1")
             .bind(&user.id)
@@ -684,6 +758,7 @@ async fn refresh(
         refresh_token: issued.refresh.expose().clone(),
         device_id: row.device_id.clone(),
         user: me_for(&s, &user).await?,
+        vault: None,
     }))
 }
 
@@ -724,23 +799,34 @@ async fn reset_request(
 }
 
 async fn reset(State(s): State<AppState>, ClientIp(ip): ClientIp, ApiJson(req): ApiJson<ResetPassword>) -> AppResult<StatusCode> {
-    reset_with_token(&s, ip, req.token, req.password).await?;
+    reset_with_token(&s, ip, req.token, req.password, req.vault).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Sets a new password from a reset link (the app's API and the web page share it).
-pub(crate) async fn reset_with_token(s: &AppState, ip: Option<std::net::IpAddr>, token: String, password: String) -> AppResult<()> {
+/// Sets a new password (or proof, with a new vault) from a reset link.
+pub(crate) async fn reset_with_token(
+    s: &AppState,
+    ip: Option<std::net::IpAddr>,
+    token: String,
+    password: String,
+    vault: Option<VaultSetup>,
+) -> AppResult<()> {
     s.limit_ip(ip)?;
     let token = Redacted::new(token);
     let password = Redacted::new(password);
     let bad = || AppError::new(ErrorCode::InvalidToken, "This link is not valid or has expired.");
     let t = tokens::find(&s.db, tokens::RESET, token.expose()).await?.ok_or_else(bad)?;
     let user = user_by_id(s, t.user_id.as_deref().unwrap_or("")).await?.ok_or_else(bad)?;
-    password::check_strength(password.expose(), &user.email, &user.name)?;
+    check_new_secret(password.expose(), vault.as_ref(), &user.email, &user.name)?;
     let hash = password::hash(&s.cfg, password.expose()).await?;
     let mut tx = s.db.begin().await?;
     if !tokens::consume(&mut *tx, &t.hash).await? {
         return Err(bad());
+    }
+    set_vault(&mut *tx, &user.id, &hash, vault.as_ref()).await?;
+    // The old vault key went with the old password: what it sealed is unreadable.
+    if user.kdf.is_some() {
+        crate::sections::drop_credentials(&mut *tx, &user.id).await?;
     }
     // The data key isn't derived from the password: settings stay intact.
     sqlx::query(
@@ -778,13 +864,19 @@ async fn change_password(State(s): State<AppState>, ctx: AuthCtx, ApiJson(req): 
     let current = Redacted::new(req.current);
     let new = Redacted::new(req.new);
     let user = current_user(&s, &ctx).await?;
-    if !password::verify(current.expose(), &user.password_hash).await {
+    if !check_secret(&user, current.expose()).await? {
         audit::log(&s.db, Event::new("auth.password.fail", Actor::User(&user.id)).org(&user.org_id).target(&user.id)).await;
         return Err(invalid_credentials());
     }
-    password::check_strength(new.expose(), &user.email, &user.name)?;
+    // A converted account keeps its vault key: only its wrapping changes.
+    match (&user.vault(), &req.vault) {
+        (Some(_), None) => return Err(update_required()),
+        (Some(old), Some(new)) if old.key_id != new.key_id => return Err(AppError::bad_request("That isn't this account's vault key.")),
+        _ => {}
+    }
+    check_new_secret(new.expose(), req.vault.as_ref(), &user.email, &user.name)?;
     let hash = password::hash(&s.cfg, new.expose()).await?;
-    sqlx::query("update users set password_hash = $2 where id = $1").bind(&user.id).bind(&hash).execute(&s.db).await?;
+    set_vault(&s.db, &user.id, &hash, req.vault.as_ref()).await?;
     session::revoke_user_devices(&s, &user.id, Some(&ctx.device_id)).await?;
     audit::log(&s.db, Event::new("auth.password.change", Actor::User(&user.id)).org(&user.org_id).target(&user.id)).await;
     Ok(StatusCode::NO_CONTENT)
@@ -886,7 +978,7 @@ async fn totp_disable(State(s): State<AppState>, ctx: AuthCtx, ApiJson(req): Api
     let password = Redacted::new(req.password);
     let code = Redacted::new(req.code);
     let user = current_user(&s, &ctx).await?;
-    if !password::verify(password.expose(), &user.password_hash).await {
+    if !check_secret(&user, password.expose()).await? {
         return Err(invalid_credentials());
     }
     let (_, policies) = org_of(&s, &user).await?;
@@ -905,6 +997,68 @@ async fn totp_disable(State(s): State<AppState>, ctx: AuthCtx, ApiJson(req): Api
     tx.commit().await?;
     audit::log(&s.db, Event::new("auth.2fa.disable", Actor::User(&user.id)).org(&user.org_id).target(&user.id)).await;
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ---------- vault ----------
+
+/// How to turn an account's password into keys (before signing in). Unknown
+/// e-mails get stable made-up settings, so the answer doesn't tell who has an
+/// account; `null` is an account that still signs in with its password.
+async fn prelogin(State(s): State<AppState>, ClientIp(ip): ClientIp, ApiJson(req): ApiJson<PreloginRequest>) -> AppResult<ApiJson<PreloginResponse>> {
+    s.limit_ip(ip)?;
+    let email = normalize_email(&req.email);
+    if let Some(user) = user_by_email(&s, &email).await? {
+        return Ok(ApiJson(PreloginResponse { kdf: user.kdf.map(|k| k.0) }));
+    }
+    let key = s
+        .prelogin_key
+        .get_or_try_init(|| async {
+            let org: Option<String> = sqlx::query_scalar("select id from orgs order by created_at limit 1").fetch_optional(&s.db).await?;
+            let dk = match org {
+                Some(o) => s.env.org_key(&s.db, &o).await?.bytes().to_vec(),
+                None => crate::crypto::sha256(s.dummy_hash.as_bytes()),
+            };
+            Ok::<_, AppError>(crate::crypto::sha256(&[b"camel-mail/prelogin/v1|".as_slice(), &dk].concat()))
+        })
+        .await?;
+    let salt = crate::crypto::sha256(&[key.as_slice(), email.as_bytes()].concat());
+    use base64::Engine as _;
+    let kdf = Kdf {
+        alg: "argon2id".into(),
+        m_kib: 65_536,
+        t: 3,
+        p: 1,
+        salt: base64::engine::general_purpose::STANDARD.encode(&salt[..16]),
+    };
+    Ok(ApiJson(PreloginResponse { kdf: Some(kdf) }))
+}
+
+/// The signed-in account's wrapped vault key (`null` until it's converted).
+async fn vault_get(State(s): State<AppState>, ctx: AuthCtx) -> AppResult<ApiJson<Option<VaultSetup>>> {
+    Ok(ApiJson(current_user(&s, &ctx).await?.vault()))
+}
+
+/// Converts the signed-in account (a device that was signed in before its app
+/// encrypted sign-ins end to end): the password once more, then the proof.
+async fn vault_convert(State(s): State<AppState>, ctx: AuthCtx, ApiJson(req): ApiJson<VaultConvert>) -> AppResult<ApiJson<VaultSetup>> {
+    let password = Redacted::new(req.password);
+    let user = current_user(&s, &ctx).await?;
+    if user.kdf.is_some() {
+        return Err(AppError::new(ErrorCode::Conflict, "This account is converted already."));
+    }
+    if let Some(until) = user.locked_until.filter(|u| *u > Utc::now()) {
+        return Err(locked((until - Utc::now()).num_seconds().max(1) as u64));
+    }
+    if !password::verify(password.expose(), &user.password_hash).await {
+        count_failure(&s, &user, None, "auth.password.fail").await?;
+        return Err(invalid_credentials());
+    }
+    let up = req.upgrade;
+    check_new_secret(&up.proof, Some(&up.vault), &user.email, &user.name)?;
+    let hash = password::hash(&s.cfg, &up.proof).await?;
+    set_vault(&s.db, &user.id, &hash, Some(&up.vault)).await?;
+    audit::log(&s.db, Event::new("auth.vault.convert", Actor::User(&user.id)).org(&user.org_id).target(&user.id)).await;
+    Ok(ApiJson(up.vault))
 }
 
 // ---------- devices ----------

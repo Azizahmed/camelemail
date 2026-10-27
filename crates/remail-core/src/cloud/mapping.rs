@@ -19,6 +19,7 @@ use serde_json::{json, Value};
 use remail_proto::sections::{self, account, cred};
 use remail_proto::sync::{Record, SectionDoc, Stamp, SINGLETON};
 
+use super::vault::{self, VaultKey};
 use super::{CalOverride, CAL_OVERRIDES};
 use crate::calendar::{SyncedCalAccount, OUTLOOK_OFF};
 use crate::engine::{account_provider, AppSettings, CleanRule, Engine, UI_PREFS};
@@ -213,16 +214,39 @@ fn collect_accounts(engine: &Engine) -> Result<Local> {
     Ok(out)
 }
 
+/// How this device writes and reads credential sections.
+enum CredMode {
+    /// Sealed with the account's vault key (docs/platform/zero-knowledge.md).
+    Sealed(VaultKey),
+    /// The account seals them, but this device hasn't the key yet (it asks
+    /// for the password): it neither writes nor reads them.
+    Locked,
+    /// An account not converted yet: as before (the server's encryption).
+    Plain,
+}
+
+fn cred_mode(engine: &Engine) -> CredMode {
+    let me: Option<remail_proto::api::Me> = engine.store().setting(super::ME_KEY);
+    match me.and_then(|m| m.vault_key_id) {
+        None => CredMode::Plain,
+        Some(id) => match vault::load(engine) {
+            Some(vk) if vk.id == id => CredMode::Sealed(vk),
+            _ => CredMode::Locked,
+        },
+    }
+}
+
 fn collect_cred(engine: &Engine, owner: &str) -> Result<Option<Local>> {
     let mut out = Local::new();
     let secrets = engine.secrets();
+    let mode = cred_mode(engine);
     let mut r = LocalRecord { exhaustive: true, ..Default::default() };
     if owner.starts_with("acc_") {
         let Some(acc) = engine.store().account(owner)? else { return Ok(Some(out)) };
-        if acc.auth == crate::oauth::GOOGLE {
-            // Google sign-ins never leave the device: no Gmail access passes
-            // through or rests on the Remail server (Google's restricted-scope
-            // rules). An older upload is deleted from the server here.
+        if acc.auth == crate::oauth::GOOGLE && matches!(mode, CredMode::Plain) {
+            // Unsealed, Google sign-ins never leave the device: no Gmail access
+            // rests on the server in a form it could read (Google's
+            // restricted-scope rules). An older upload is deleted here.
             return Ok(Some(out));
         }
         let Some(secret) = secrets.get(owner)? else { return Ok(None) };
@@ -249,6 +273,18 @@ fn collect_cred(engine: &Engine, owner: &str) -> Result<Option<Local>> {
         }
     } else {
         return Ok(None);
+    }
+    match mode {
+        CredMode::Plain => {}
+        CredMode::Locked => return Ok(None),
+        CredMode::Sealed(vk) => {
+            let plain = zeroize::Zeroizing::new(serde_json::to_vec(&r.fields)?);
+            let sealed = vault::seal(&vk, owner, &plain)?;
+            r.fields = BTreeMap::new();
+            r.fields.insert(cred::KIND.into(), json!(cred::SEALED));
+            r.fields.insert(cred::VAULT_KEY.into(), json!(vk.id));
+            r.fields.insert(cred::SEALED.into(), json!(sealed));
+        }
     }
     out.insert(SINGLETON.into(), r);
     Ok(Some(out))
@@ -570,19 +606,34 @@ fn apply_cred(engine: &Engine, owner: &str, doc: &SectionDoc) -> Result<()> {
     let Some(rec) = doc.records.get(SINGLETON) else { return Ok(()) };
     let have = secrets.get(&secret_id)?;
     let google = |v: Option<&Value>| v.and_then(|g| g.get("provider")).and_then(Value::as_str) == Some(crate::oauth::GOOGLE);
-    // This device's own Google sign-in: the server has (and sends) none.
-    if google(have.as_deref().and_then(|h| serde_json::from_str::<Value>(h).ok()).as_ref()) {
+    let sealed = rec.get(cred::KIND).and_then(Value::as_str) == Some(cred::SEALED);
+    // Unsealed, the server has (and sends) no Google sign-in: keep this device's own.
+    if !sealed && google(have.as_deref().and_then(|h| serde_json::from_str::<Value>(h).ok()).as_ref()) {
         return Ok(());
     }
     if rec.is_deleted() {
         return secrets.delete(&secret_id);
     }
-    let want = match rec.get(cred::KIND).and_then(Value::as_str) {
-        Some("oauth") => rec.get(cred::GRANT).filter(|g| g.is_object()).cloned(),
-        _ => rec.get(cred::PASSWORD).filter(|p| p.is_string()).cloned(),
+    // What the record holds: opened with the vault key when sealed.
+    let fields: serde_json::Map<String, Value> = if sealed {
+        let CredMode::Sealed(vk) = cred_mode(engine) else { return Ok(()) };
+        if rec.get(cred::VAULT_KEY).and_then(Value::as_str) != Some(vk.id.as_str()) {
+            return Ok(());
+        }
+        let Some(plain) = rec.get(cred::SEALED).and_then(Value::as_str).and_then(|s| vault::open(&vk, owner, s)) else {
+            tracing::warn!(owner, "a sealed sign-in didn't open with this account's vault key");
+            return Ok(());
+        };
+        serde_json::from_slice(&plain)?
+    } else {
+        [cred::KIND, cred::PASSWORD, cred::GRANT].iter().filter_map(|k| Some((k.to_string(), rec.get(k)?.clone()))).collect()
     };
-    // A Google sign-in uploaded before they stayed on devices: not used.
-    let Some(want) = want.filter(|w| !google(Some(w))) else { return Ok(()) };
+    let want = match fields.get(cred::KIND).and_then(Value::as_str) {
+        Some("oauth") => fields.get(cred::GRANT).filter(|g| g.is_object()).cloned(),
+        _ => fields.get(cred::PASSWORD).filter(|p| p.is_string()).cloned(),
+    };
+    // Unsealed: a Google sign-in uploaded before they stayed on devices isn't used.
+    let Some(want) = want.filter(|w| sealed || !google(Some(w))) else { return Ok(()) };
     // Grants compare as JSON (key order differs between writers).
     let same = match (&want, &have) {
         (Value::String(p), Some(h)) => p == h,

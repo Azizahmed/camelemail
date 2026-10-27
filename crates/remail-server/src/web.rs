@@ -1,5 +1,5 @@
 //! The small web pages links in the server's e-mails open: confirm an
-//! address, choose a new password, see an invitation. English and Arabic,
+//! address, get a password reset code, see an invitation. English and Arabic,
 //! no scripts, nothing loaded from elsewhere.
 //!
 //! Opening a link never acts by itself (mail scanners open links too): the page
@@ -19,7 +19,7 @@ use crate::error::AppError;
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/verify", get(verify_page).post(verify_submit))
-        .route("/reset", get(reset_page).post(reset_submit))
+        .route("/reset", get(reset_page))
         .route("/invite", get(invite_page))
 }
 
@@ -69,18 +69,6 @@ struct VerifyForm {
     t: String,
     #[serde(default)]
     lang: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct ResetForm {
-    #[serde(default)]
-    t: String,
-    #[serde(default)]
-    lang: Option<String>,
-    #[serde(default)]
-    password: String,
-    #[serde(default)]
-    confirm: String,
 }
 
 fn esc(s: &str) -> String {
@@ -170,10 +158,6 @@ fn error_text(lang: Lang, e: &AppError) -> &'static str {
             "This link is not valid or has expired. Ask for a new one in the Camel Mail app.",
             "هذا الرابط غير صالح أو انتهت صلاحيته. اطلب رابطًا جديدًا من تطبيق Camel Mail.",
         ),
-        ErrorCode::WeakPassword => lang.tr(
-            "Choose a stronger password: at least 10 characters, not easy to guess, and without your name or e-mail.",
-            "اختر كلمة مرور أقوى: 10 أحرف على الأقل، يصعب تخمينها، ولا تتضمن اسمك أو بريدك الإلكتروني.",
-        ),
         ErrorCode::RateLimited | ErrorCode::AccountLocked => {
             lang.tr("Too many attempts. Wait a few minutes and try again.", "محاولات كثيرة. انتظر بضع دقائق ثم حاول مجددًا.")
         }
@@ -220,59 +204,25 @@ async fn verify_submit(
     }
 }
 
-fn reset_form(lang: Lang, token: &str, error: Option<&str>) -> Response {
-    let err = error.map(|e| format!(r#"<p class="err">{}</p>"#, esc(e))).unwrap_or_default();
-    let body = format!(
-        r#"<p>{intro}</p>{err}<form method="post" action="/reset">{hidden}
-<label for="pw">{new}</label><input id="pw" type="password" name="password" autocomplete="new-password" minlength="10" required autofocus>
-<label for="pw2">{again}</label><input id="pw2" type="password" name="confirm" autocomplete="new-password" minlength="10" required>
-<button type="submit">{save}</button></form>{switch}"#,
-        intro = lang.tr(
-            "Choose a new password. You'll be signed out on all your devices; your mailboxes and settings stay as they are.",
-            "اختر كلمة مرور جديدة. سيُسجَّل خروجك من جميع أجهزتك، وتبقى صناديق بريدك وإعداداتك كما هي."
-        ),
-        hidden = hidden(token, lang),
-        new = lang.tr("New password", "كلمة المرور الجديدة"),
-        again = lang.tr("Repeat it", "أعد كتابتها"),
-        save = lang.tr("Set password", "تعيين كلمة المرور"),
-        switch = switch(lang, "/reset", token),
-    );
-    page(lang, lang.tr("Reset your password", "إعادة تعيين كلمة المرور"), &body)
-}
-
+/// The new password is chosen in the app, where the keys are made from it (the
+/// server never sees it): this page only shows the code to paste there.
 async fn reset_page(headers: HeaderMap, Query(q): Query<LinkQuery>) -> Response {
     let lang = Lang::pick(q.lang.as_deref(), &headers);
-    reset_form(lang, &q.t, None)
-}
-
-async fn reset_submit(
-    State(s): State<AppState>,
-    ClientIp(ip): ClientIp,
-    headers: HeaderMap,
-    Form(f): Form<ResetForm>,
-) -> Response {
-    let lang = Lang::pick(f.lang.as_deref(), &headers);
-    if f.password != f.confirm {
-        return reset_form(lang, &f.t, Some(lang.tr("The passwords don't match.", "كلمتا المرور غير متطابقتين.")));
-    }
-    let token = f.t.clone();
-    match crate::auth::reset_with_token(&s, ip, f.t, f.password).await {
-        Ok(()) => page(
-            lang,
-            lang.tr("Password changed", "تم تغيير كلمة المرور"),
-            &format!(
-                "<p>{}</p>",
-                lang.tr("Sign in to Camel Mail with your new password.", "سجّل الدخول إلى Camel Mail بكلمة المرور الجديدة.")
-            ),
+    let body = format!(
+        r#"<p>{steps}</p><label>{code_l}</label><code>{token}</code><p>{after}</p>{switch}"#,
+        steps = lang.tr(
+            "Open the Camel Mail app, choose \u{201c}Forgot password?\u{201d}, then \u{201c}I have a code\u{201d}, and paste this code. You'll choose the new password there.",
+            "افتح تطبيق Camel Mail، واختر «نسيت كلمة المرور؟» ثم «لديّ رمز»، والصق هذا الرمز. ستختار كلمة المرور الجديدة هناك."
         ),
-        // A weak password can be fixed on the same page; anything else can't.
-        Err(e) if e.code() == ErrorCode::WeakPassword => reset_form(lang, &token, Some(error_text(lang, &e))),
-        Err(e) => page(
-            lang,
-            lang.tr("Couldn't change the password", "تعذّر تغيير كلمة المرور"),
-            &format!(r#"<p class="err">{}</p>"#, error_text(lang, &e)),
+        code_l = lang.tr("Reset code", "رمز إعادة التعيين"),
+        token = esc(&q.t),
+        after = lang.tr(
+            "You'll be signed out on all your devices. Your mailboxes and settings stay, but each mailbox needs signing in again: their sign-ins are encrypted with your old password.",
+            "سيُسجَّل خروجك من جميع أجهزتك. تبقى صناديق بريدك وإعداداتك، لكن يلزم تسجيل الدخول إلى كل صندوق بريد من جديد: بيانات دخولها مشفّرة بكلمة المرور القديمة."
         ),
-    }
+        switch = switch(lang, "/reset", &q.t),
+    );
+    page(lang, lang.tr("Reset your password", "إعادة تعيين كلمة المرور"), &body)
 }
 
 async fn invite_page(State(s): State<AppState>, headers: HeaderMap, Query(q): Query<LinkQuery>) -> Response {

@@ -64,6 +64,14 @@
   <p class="load-error">Camel Mail couldn't load this window ({String(e)}). <button onclick={() => location.reload()}>Try again</button></p>
 {/snippet}
 
+{#snippet vaultUnlock()}
+  {#if cloud.status?.vault === "locked"}
+    {#await import("./auth/VaultUnlock.svelte") then { default: VaultUnlock }}
+      <VaultUnlock />
+    {/await}
+  {/if}
+{/snippet}
+
 {#snippet waiting()}
   {#if cloud.error}
     <div class="center">
@@ -105,12 +113,14 @@
   {:catch e}
     {@render failed(e)}
   {/await}
+  {@render vaultUnlock()}
 {:else if screen === "app"}
   {#await import("./MainWindow.svelte") then { default: MainWindow }}
     <MainWindow />
   {:catch e}
     {@render failed(e)}
   {/await}
+  {@render vaultUnlock()}
 {:else}
   {#if screen === "loading"}
     <div class="center"><span class="spinner"></span></div>

@@ -37,6 +37,8 @@ pub struct Inner {
     /// A real argon2 hash of a random password, verified against for unknown
     /// e-mails so they take as long as known ones.
     pub dummy_hash: String,
+    /// Keys the made-up key settings prelogin answers for unknown e-mails.
+    pub prelogin_key: tokio::sync::OnceCell<Vec<u8>>,
 }
 
 #[derive(Clone)]
@@ -71,6 +73,7 @@ impl AppState {
             mailer,
             hub,
             dummy_hash,
+            prelogin_key: tokio::sync::OnceCell::new(),
         })))
     }
 

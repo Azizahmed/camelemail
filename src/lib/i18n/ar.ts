@@ -139,7 +139,7 @@ export const ar: Record<MessageKey, string> = {
   "reset.newPassword": "كلمة المرور الجديدة",
   "reset.confirm": "تأكيد كلمة المرور الجديدة",
   "reset.submitNew": "تغيير كلمة المرور",
-  "reset.signsOut": "سيؤدي هذا إلى تسجيل خروجك من جميع أجهزتك.",
+  "reset.signsOut": "سيؤدي هذا إلى تسجيل خروجك من جميع أجهزتك. بيانات دخول صناديق بريدك مشفّرة بكلمة المرور القديمة، لذا ستسجّل الدخول إلى كل صندوق بريد من جديد.",
   "reset.done": "تم تغيير كلمة المرور. سجّل الدخول بكلمة المرور الجديدة.",
 
   // ---- نقل الإعداد الحالي ----
@@ -480,6 +480,7 @@ export const ar: Record<MessageKey, string> = {
   "err.licence_expired": "انتهى ترخيص Camel Mail الخاص بمؤسستك. تواصل مع المسؤول.",
   "err.licence_invalid": "ترخيص Camel Mail الخاص بمؤسستك غير صالح. تواصل مع المسؤول.",
   "err.seat_limit": "لا توجد مقاعد شاغرة في Camel Mail لدى مؤسستك. تواصل مع المسؤول.",
+  "err.update_required": "حدّث Camel Mail لتسجيل الدخول: هذا الحساب يحفظ بيانات دخول صناديق بريدك مشفّرة من طرف إلى طرف.",
   "err.unavailable": "يتعذّر على Camel Mail الوصول إلى خادمه. تحقّق من اتصالك وحاول مجددًا.",
   "err.internal": "حدث خطأ في الخادم. حاول مجددًا بعد قليل.",
 
@@ -726,4 +727,15 @@ export const ar: Record<MessageKey, string> = {
   "m.cal.edit": "تعديل",
   "m.cal.delete": "حذف",
   "m.cal.readOnlyShort": "للقراءة فقط",
+
+  // ---- end-to-end encrypted mailbox sign-ins ----
+  "vault.unlockTitle": "افتح بيانات دخول صناديق بريدك",
+  "vault.unlockLead": "بيانات دخول صناديق بريدك مشفّرة من طرف إلى طرف. أدخل كلمة مرور Camel Mail مرة واحدة على هذا الجهاز لاستخدامها هنا.",
+  "vault.turnOnTitle": "احمِ بيانات دخول صناديق بريدك",
+  "vault.turnOnLead": "يشفّر Camel Mail الآن بيانات دخول صناديق بريدك على أجهزتك قبل مزامنتها، فلا يستطيع حتى خادمه قراءتها. أدخل كلمة مرور Camel Mail مرة واحدة لتفعيل ذلك.",
+  "vault.password": "كلمة مرور Camel Mail",
+  "vault.unlock": "فتح",
+  "vault.turnOn": "تفعيل",
+  "vault.later": "لاحقًا",
+  "vault.done": "بيانات دخول صناديق بريدك مشفّرة من طرف إلى طرف على هذا الجهاز.",
 };

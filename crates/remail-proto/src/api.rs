@@ -66,6 +66,10 @@ pub struct SignupRequest {
     /// `en` | `ar`, for the e-mails the server sends.
     #[serde(default)]
     pub locale: Option<String>,
+    /// From apps that keep mailbox sign-ins end-to-end encrypted: `password`
+    /// is then a proof ([`is_proof`]), never the password itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vault: Option<VaultSetup>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,8 +89,94 @@ pub struct TokenRequest {
 #[serde(rename_all = "camelCase")]
 pub struct LoginRequest {
     pub email: String,
+    /// The proof, for an account with a `kdf`; the password for one without.
     pub password: String,
     pub device: DeviceInfo,
+    /// Converts an account without a `kdf`: `password` is then the password
+    /// (checked once more), and the account keeps this proof and vault instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upgrade: Option<VaultUpgrade>,
+}
+
+/// How a password becomes keys on the device: Argon2id with these costs and
+/// salt gives the master key, from which come the proof and the vault's
+/// wrapping key (docs/platform/zero-knowledge.md).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Kdf {
+    /// `argon2id`
+    pub alg: String,
+    pub m_kib: u32,
+    pub t: u32,
+    pub p: u32,
+    /// base64
+    pub salt: String,
+}
+
+impl Kdf {
+    /// Costs a server accepts (and a device is willing to run).
+    pub fn is_reasonable(&self) -> bool {
+        self.alg == "argon2id"
+            && (19_456..=1_048_576).contains(&self.m_kib)
+            && (1..=10).contains(&self.t)
+            && (1..=4).contains(&self.p)
+            && (16..=88).contains(&self.salt.len())
+    }
+}
+
+/// The account's vault key, wrapped with a key only the password gives.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultSetup {
+    pub kdf: Kdf,
+    /// base64(nonce ‖ AES-256-GCM(vault KEK, vault key))
+    pub key_enc: String,
+    /// Changes only when the vault key does (a password reset).
+    pub key_id: String,
+}
+
+impl VaultSetup {
+    pub fn is_reasonable(&self) -> bool {
+        self.kdf.is_reasonable()
+            && (40..=200).contains(&self.key_enc.len())
+            && (8..=64).contains(&self.key_id.len())
+            && self.key_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultUpgrade {
+    pub proof: String,
+    pub vault: VaultSetup,
+}
+
+/// What a password proof looks like: `v1.` and 32 bytes, base64url.
+pub const PROOF_PREFIX: &str = "v1.";
+
+pub fn is_proof(s: &str) -> bool {
+    s.strip_prefix(PROOF_PREFIX).is_some_and(|b| b.len() == 43 && b.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_'))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreloginRequest {
+    pub email: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreloginResponse {
+    /// None: an account that still signs in with its password.
+    pub kdf: Option<Kdf>,
+}
+
+/// `POST /v1/me/vault`: convert the signed-in account (it has no `kdf` yet).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultConvert {
+    pub password: String,
+    pub upgrade: VaultUpgrade,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,6 +217,9 @@ pub struct Tokens {
     pub refresh_token: String,
     pub device_id: String,
     pub user: Me,
+    /// On sign-in only: the account's wrapped vault key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vault: Option<VaultSetup>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,7 +238,10 @@ pub struct ResetRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ResetPassword {
     pub token: String,
+    /// The new password's proof when `vault` is set (a new vault key).
     pub password: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vault: Option<VaultSetup>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -160,6 +256,10 @@ pub struct Me {
     pub org_name: String,
     pub totp: bool,
     pub policies: Policies,
+    /// Set once the account keeps mailbox sign-ins end-to-end encrypted: the
+    /// id of the vault key they're sealed with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vault_key_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,6 +274,9 @@ pub struct UpdateMe {
 pub struct ChangePassword {
     pub current: String,
     pub new: String,
+    /// The same vault key, wrapped for the new password (`new` is then its proof).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vault: Option<VaultSetup>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

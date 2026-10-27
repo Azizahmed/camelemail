@@ -195,6 +195,7 @@ export const api = {
   cloudMe: () => invoke<Me>("cloud_me"),
   cloudUpdateMe: (name: string) => invoke<Me>("cloud_update_me", { name }),
   cloudChangePassword: (current: string, next: string) => invoke<void>("cloud_change_password", { current, new: next }),
+  cloudUnlock: (password: string) => invoke<void>("cloud_unlock", { password }),
   /** With a challenge: the setup a required-2FA sign-in asks for. */
   cloudTotpSetup: (challenge: string | null = null) => invoke<{ secret: string; otpauthUrl: string }>("cloud_totp_setup", { challenge }),
   /** With a challenge it also completes the sign-in. */

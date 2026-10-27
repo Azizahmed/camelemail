@@ -62,6 +62,7 @@ pub fn me() -> Me {
         org_name: "Acme".into(),
         totp: false,
         policies: Policies::default(),
+        vault_key_id: None,
     }
 }
 
@@ -71,7 +72,7 @@ impl Mock {
         let (access, refresh) = (format!("at-{}", self.counter), format!("rt-{}", self.counter));
         self.access.insert(access.clone(), device.to_string());
         self.refresh.insert(refresh.clone(), device.to_string());
-        Tokens { access_token: access, access_expires_at: remail_core::store::now_ms() + 900_000, refresh_token: refresh, device_id: device.into(), user: me() }
+        Tokens { access_token: access, access_expires_at: remail_core::store::now_ms() + 900_000, refresh_token: refresh, device_id: device.into(), user: me(), vault: None }
     }
 
     fn device(&self, headers: &HeaderMap) -> Option<String> {

@@ -157,6 +157,7 @@ handlers![
     cloud_me,
     cloud_update_me,
     cloud_change_password,
+    cloud_unlock,
     cloud_totp_setup,
     cloud_totp_enable,
     cloud_totp_disable,
@@ -1018,7 +1019,7 @@ async fn cloud_signup(
     invite: Option<String>,
     locale: Option<String>,
 ) -> R<SignupResponse> {
-    let req = SignupRequest { name, email, password, invite: invite.filter(|i| !i.trim().is_empty()), locale };
+    let req = SignupRequest { name, email, password, invite: invite.filter(|i| !i.trim().is_empty()), locale, vault: None };
     state.cloud.signup(req).await.map_err(cerr)
 }
 
@@ -1071,6 +1072,12 @@ async fn cloud_update_me(state: State<'_, AppState>, name: String) -> R<Me> {
 #[tauri::command]
 async fn cloud_change_password(state: State<'_, AppState>, current: String, new: String) -> R<()> {
     state.cloud.change_password(&current, &new).await.map_err(cerr)
+}
+
+/// Unlock this device's synced mailbox sign-ins with the Camel Mail password.
+#[tauri::command]
+async fn cloud_unlock(state: State<'_, AppState>, password: String) -> R<()> {
+    state.cloud.unlock(&password).await.map_err(cerr)
 }
 
 #[tauri::command]

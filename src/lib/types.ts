@@ -496,6 +496,8 @@ export interface Me {
   /** Two-step verification is on. */
   totp: boolean;
   policies: Policies;
+  /** Set once mailbox sign-ins sync end-to-end encrypted (the vault key's id). */
+  vaultKeyId?: string | null;
 }
 
 export type CloudPhase = "signedOut" | "migrate" | "syncing" | "ready";
@@ -512,6 +514,9 @@ export interface CloudStatus {
   offline: boolean;
   /** First sync after signing in. */
   progress: { done: number; total: number; label: string } | null;
+  /** `locked`: the Camel Mail password is needed once on this device to read and
+   * write the end-to-end encrypted mailbox sign-ins (or to turn that on). */
+  vault: "signedOut" | "ready" | "locked";
 }
 
 export type LicenceState = "none" | "valid" | "warning" | "grace" | "expired" | "invalid";

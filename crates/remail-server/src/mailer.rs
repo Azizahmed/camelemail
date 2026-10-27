@@ -174,9 +174,9 @@ pub fn verify_mail(locale: &str, public_url: &str, to: &str, token: &str) -> Mai
 pub fn reset_mail(locale: &str, public_url: &str, to: &str, token: &str) -> Mail {
     let l = links(public_url, "reset", token);
     let (subject, body) = if ar(locale) {
-        ("إعادة تعيين كلمة مرور Camel Mail", format!("افتح هذا الرابط لاختيار كلمة مرور جديدة:\n\n{l}\n\nينتهي الرابط خلال ساعة. إن لم تطلب ذلك فتجاهل هذه الرسالة."))
+        ("إعادة تعيين كلمة مرور Camel Mail", format!("افتح هذا الرابط لتحصل على رمز إعادة التعيين، ثم اختر كلمة المرور الجديدة في تطبيق Camel Mail:\n\n{l}\n\nينتهي الرابط خلال ساعة. إن لم تطلب ذلك فتجاهل هذه الرسالة."))
     } else {
-        ("Reset your Camel Mail password", format!("Open this link to choose a new password:\n\n{l}\n\nThe link expires in an hour. If you didn't ask for this, ignore this e-mail."))
+        ("Reset your Camel Mail password", format!("Open this link for your reset code, then choose the new password in the Camel Mail app:\n\n{l}\n\nThe link expires in an hour. If you didn't ask for this, ignore this e-mail."))
     };
     Mail { to: to.into(), subject: subject.into(), body }
 }

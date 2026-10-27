@@ -35,6 +35,8 @@ pub enum ErrorCode {
     LicenceExpired,
     LicenceInvalid,
     SeatLimit,
+    /// This app is too old for the account (it signs in without a password proof).
+    UpdateRequired,
     Unavailable,
     Internal,
 }
@@ -61,6 +63,7 @@ impl ErrorCode {
             VersionMismatch => 412,
             TooLarge => 413,
             ProviderNotAllowed => 422,
+            UpdateRequired => 426,
             AccountLocked | RateLimited => 429,
             Unavailable => 503,
             Internal => 500,

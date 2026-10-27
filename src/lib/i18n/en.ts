@@ -137,7 +137,7 @@ export const en = {
   "reset.newPassword": "New password",
   "reset.confirm": "Confirm new password",
   "reset.submitNew": "Change password",
-  "reset.signsOut": "This signs you out on all your devices.",
+  "reset.signsOut": "This signs you out on all your devices. Your mailbox sign-ins were encrypted with your old password, so you'll sign in to each mailbox again.",
   "reset.done": "Password changed. Sign in with your new password.",
 
   // ---- moving an existing install ----
@@ -478,6 +478,7 @@ export const en = {
   "err.licence_expired": "Your organisation's Camel Mail licence has expired. Contact your administrator.",
   "err.licence_invalid": "Your organisation's Camel Mail licence isn't valid. Contact your administrator.",
   "err.seat_limit": "Your organisation has no free Camel Mail seats. Contact your administrator.",
+  "err.update_required": "Update Camel Mail to sign in: this account keeps your mailbox sign-ins end-to-end encrypted.",
   "err.unavailable": "Camel Mail can't reach its server. Check your connection and try again.",
   "err.internal": "Something went wrong on the server. Try again in a moment.",
 
@@ -724,6 +725,17 @@ export const en = {
   "m.cal.edit": "Edit",
   "m.cal.delete": "Delete",
   "m.cal.readOnlyShort": "read-only",
+
+  // ---- end-to-end encrypted mailbox sign-ins (docs/platform/zero-knowledge.md) ----
+  "vault.unlockTitle": "Unlock your mailbox sign-ins",
+  "vault.unlockLead": "Your mailbox sign-ins are end-to-end encrypted. Enter your Camel Mail password once on this device to use them here.",
+  "vault.turnOnTitle": "Protect your mailbox sign-ins",
+  "vault.turnOnLead": "Camel Mail now encrypts your mailbox sign-ins on your devices before they sync, so not even its server can read them. Enter your Camel Mail password once to turn this on.",
+  "vault.password": "Camel Mail password",
+  "vault.unlock": "Unlock",
+  "vault.turnOn": "Turn on",
+  "vault.later": "Later",
+  "vault.done": "Your mailbox sign-ins are end-to-end encrypted on this device.",
 } as const;
 
 export type MessageKey = keyof typeof en;
