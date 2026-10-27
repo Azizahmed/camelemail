@@ -194,7 +194,7 @@
             >
               <span class="dot" style:background={a.color}></span>
               <span class="name" dir="auto">{accountName(a)}</span>
-              {#if a.status !== "active"}<span class="warn" title={a.lastError ?? ""}><AlertCircle size={13} /></span>{/if}
+              {#if a.status === "auth_error"}<span class="warn" title={a.lastError ?? ""}><AlertCircle size={13} /></span>{/if}
               {#if (mail.unread[a.id] ?? 0) > 0}<span class="badge">{mail.unread[a.id]}</span>{/if}
               <ChevronRight size={13} class="chev" />
             </button>

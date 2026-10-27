@@ -248,7 +248,8 @@
     }
   }
 
-  const statusLabel = (s: Account["status"]) => (s === "auth_error" ? "Sign-in needed" : s === "offline" ? "Offline" : "Active");
+  // "offline" is the provider not answering (a phone's network cut off, a Wi-Fi switch): it retries by itself.
+  const statusLabel = (s: Account["status"]) => (s === "auth_error" ? "Sign-in needed" : s === "offline" ? "Syncing…" : "Active");
 
   // ------------------------------------------------------------ rich editor
   let htmlMode = $state(false);
@@ -575,7 +576,7 @@
                   <span class="acct-email">{a.email}</span>
                 </span>
                 {#if a.status !== "active"}
-                  <span class="badge" title={a.lastError ?? statusLabel(a.status)}>{statusLabel(a.status)}</span>
+                  <span class="badge" class:accent={a.status === "offline"} title={a.lastError ?? statusLabel(a.status)}>{statusLabel(a.status)}</span>
                 {/if}
                 <span class="chev" class:open={openId === a.id}><ChevronRight size={15} /></span>
               </button>
@@ -610,7 +611,7 @@
                       IMAP {a.imap.host}:{a.imap.port} · SMTP {a.smtp.host}:{a.smtp.port}
                     {/if}
                   </div>
-                  {#if a.lastError}<div class="err-line selectable">{a.lastError}</div>{/if}
+                  {#if a.lastError}<div class="err-line selectable" class:passing={a.status === "offline"}>{a.status === "offline" ? `Trying again by itself. Last try: ${a.lastError}` : a.lastError}</div>{/if}
                   {#if reauthId === a.id}
                     <div class="inline-setup">
                       <AccountSetup mode="edit" account={a} compact ondone={() => { reauthId = null; loadAccounts(); }} oncancel={() => (reauthId = null)} />
@@ -1135,6 +1136,9 @@
     margin-top: 6px;
     font-size: 12px;
     color: var(--indicator-error);
+  }
+  .err-line.passing {
+    color: var(--content-muted);
   }
   .acct-actions {
     display: flex;

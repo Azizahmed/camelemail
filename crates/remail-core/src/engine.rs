@@ -418,6 +418,8 @@ pub(crate) struct Inner {
     oauth_tokens: Mutex<HashMap<String, (String, i64)>>,
     /// One token refresh at a time (refresh tokens may rotate).
     oauth_refresh: tokio::sync::Mutex<()>,
+    /// Account id → IMAP sign-ins refused in a row although the token was fresh.
+    imap_refusals: Mutex<HashMap<String, u32>>,
     /// Cancels a sign-in that is waiting for the browser.
     oauth_cancel: Mutex<Option<CancellationToken>>,
     /// Set while mail may run (signed in to Remail): account workers and the
@@ -542,6 +544,7 @@ impl Engine {
             cal: Default::default(),
             oauth_tokens: Mutex::new(HashMap::new()),
             oauth_refresh: tokio::sync::Mutex::new(()),
+            imap_refusals: Mutex::new(HashMap::new()),
             oauth_cancel: Mutex::new(None),
             draft_saves: Mutex::new(HashMap::new()),
             gate: Mutex::new(None),
@@ -3072,21 +3075,45 @@ async fn connect_imap(inner: &Inner, account: &Account) -> Result<ImapConn> {
                 // Keep the server's own wording in the log: the user-facing message below is generic.
                 tracing::warn!("{}: mail server rejected the sign-in token, retrying with a fresh one: {e:#}", account.email);
                 forget_token(inner, &account.id, failed);
-                ImapConn::connect(account, &login_for(inner, account).await?).await.map_err(|e| {
-                    if imap::is_auth_error(&e) {
-                        tracing::warn!("{}: mail server rejected a fresh sign-in token too: {e:#}", account.email);
+                let retried = ImapConn::connect(account, &login_for(inner, account).await?).await;
+                let mut refusals = inner.imap_refusals.lock().unwrap();
+                match retried {
+                    Err(e) if imap::is_auth_error(&e) => {
+                        // The provider just gave a fresh token, so the sign-in itself is
+                        // good: Outlook in particular turns one down now and then (more so
+                        // from a phone's network). Only a refusal that keeps up asks the
+                        // user to sign in again; until then the account retries.
+                        let n = refusals.entry(account.id.clone()).or_default();
+                        *n += 1;
+                        tracing::warn!("{}: mail server rejected a fresh sign-in token too ({} in a row): {e:#}", account.email, n);
                         let name = provider_name(&account.auth);
-                        oauth::SignInRequired(format!("{name} no longer accepts this account's sign-in. Sign in again.")).into()
-                    } else {
-                        e
+                        if *n >= SIGN_IN_REFUSALS {
+                            Err(oauth::SignInRequired(format!("{name} no longer accepts this account's sign-in. Sign in again.")).into())
+                        } else {
+                            Err(anyhow!("{name}'s mail server turned the sign-in down for now; trying again"))
+                        }
                     }
-                })
+                    r => {
+                        if r.is_ok() {
+                            refusals.remove(&account.id);
+                        }
+                        r
+                    }
+                }
             }
             Login::Password(_) => Err(e),
         },
-        r => r,
+        r => {
+            if r.is_ok() {
+                inner.imap_refusals.lock().unwrap().remove(&account.id);
+            }
+            r
+        }
     }
 }
+
+/// IMAP refusals of a fresh OAuth token in a row before the account needs signing in again.
+const SIGN_IN_REFUSALS: u32 = 5;
 
 /// Drop a cached access token, unless another task already replaced it.
 fn forget_token(inner: &Inner, account_id: &str, failed: &str) {

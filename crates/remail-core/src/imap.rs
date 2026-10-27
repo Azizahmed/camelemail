@@ -541,6 +541,9 @@ impl ImapConn {
                     if matches!(login, Login::OAuth(_)) && mailbox_unavailable(&msg) {
                         return Err(MailboxUnavailable(server_text(&msg)).into());
                     }
+                    if refusal_passes(&msg) {
+                        bail!("the mail server is busy right now ({}); trying again", server_text(&msg));
+                    }
                     return Err(AuthError(msg).into());
                 }
                 other => return Err(anyhow!(other).context("login failed")),
@@ -864,6 +867,13 @@ impl ImapConn {
     }
 }
 
+/// A sign-in the server turned down for now, not for the password:
+/// RFC 5530's UNAVAILABLE / INUSE / LIMIT, or wording that says so.
+fn refusal_passes(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    ["[unavailable]", "[inuse]", "[limit]", "too many simultaneous", "temporar", "try again later"].iter().any(|w| m.contains(w))
+}
+
 pub fn is_auth_error(e: &anyhow::Error) -> bool {
     e.downcast_ref::<AuthError>().is_some() || e.downcast_ref::<crate::oauth::SignInRequired>().is_some()
 }
@@ -883,6 +893,15 @@ mod tests {
 
     fn folder(path: &str, special: Option<&'static str>) -> RemoteFolder {
         RemoteFolder { path: path.into(), display: decode_utf7(path), delimiter: Some("/".into()), special_use: special, selectable: true }
+    }
+
+    #[test]
+    fn passing_refusals_are_not_bad_passwords() {
+        assert!(refusal_passes("[UNAVAILABLE] Server busy"));
+        assert!(refusal_passes("[ALERT] Too many simultaneous connections. (Failure)"));
+        assert!(refusal_passes("Temporary authentication failure"));
+        assert!(!refusal_passes("[AUTHENTICATIONFAILED] Invalid credentials (Failure)"));
+        assert!(!refusal_passes("AUTHENTICATE failed."));
     }
 
     #[test]
