@@ -455,3 +455,42 @@ async fn invite_claims_an_unconfirmed_address() {
     assert_eq!(r.code(), "email_taken");
     s.finish().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn lost_refresh_reply_can_be_repeated() {
+    let Some(s) = start(Mode::Hosted).await else { return };
+    let email = "phone@example.com";
+    let laptop = s.new_user(email, PASSWORD).await;
+    let phone = s.device(email, PASSWORD, "Phone").await;
+    let refresh = |t: String| {
+        let s = &s;
+        async move { s.post("/auth/refresh", json!({"refreshToken": t}), None).await }
+    };
+
+    // The phone refreshes, but the reply is lost (the app was frozen mid-request).
+    let r1 = refresh_token(&phone);
+    let lost = refresh(r1.clone()).await;
+    assert_eq!(lost.status, 200);
+    // So it asks again with the token it has: that still works, more than once.
+    let again = refresh(r1.clone()).await;
+    assert_eq!(again.status, 200, "{:?}", again.body);
+    let again = refresh(r1.clone()).await;
+    assert_eq!(again.status, 200, "{:?}", again.body);
+    assert_eq!(again.body["deviceId"], phone["deviceId"]);
+    // The sessions the lost replies carried are dead.
+    assert_eq!(refresh(refresh_token(&lost.body)).await.status, 401);
+    assert_eq!(s.get("/me", Some(&token(&lost.body))).await.status, 401);
+
+    // Once the phone uses its new session, the old token coming back is reuse: the phone is signed out.
+    let current = again.body.clone();
+    assert_eq!(s.get("/me", Some(&token(&current))).await.status, 200);
+    assert_eq!(refresh(r1).await.status, 401);
+    assert_eq!(s.get("/me", Some(&token(&current))).await.status, 401);
+    assert_eq!(refresh(refresh_token(&current)).await.status, 401);
+    // Other devices aren't affected.
+    assert_eq!(s.get("/me", Some(&token(&laptop))).await.status, 200);
+    let actions = audit_actions(&s).await;
+    assert_eq!(actions.iter().filter(|a| *a == "auth.refresh.repeat").count(), 2, "{actions:?}");
+    assert!(actions.contains(&"auth.refresh.reuse".to_string()), "{actions:?}");
+    s.finish().await;
+}

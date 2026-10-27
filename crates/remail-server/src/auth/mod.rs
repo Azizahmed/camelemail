@@ -642,27 +642,42 @@ async fn refresh(
         .await;
         Err::<ApiJson<Tokens>, AppError>(AppError::unauthorized())
     };
-    if row.rotated_at.is_some() {
-        return reuse(s, row).await;
-    }
     let user = user_by_id(&s, &row.user_id).await?.ok_or_else(AppError::unauthorized)?;
     let (org, policies) = org_of(&s, &user).await?;
     if user.disabled_at.is_some() || org.disabled_at.is_some() {
         return Err(AppError::new(ErrorCode::AccountDisabled, "This account is disabled."));
     }
     let mut tx = s.db.begin().await?;
-    let rotated = sqlx::query("update sessions set rotated_at = now() where id = $1 and rotated_at is null and revoked_at is null")
+    let taken = if row.rotated_at.is_none() {
+        sqlx::query("update sessions set rotated_at = now() where id = $1 and rotated_at is null and revoked_at is null")
+            .bind(&row.id)
+            .execute(&mut *tx)
+            .await?
+    } else {
+        // Refreshed already, but the session that made was never used: the
+        // reply didn't reach the device (an app frozen or killed mid-request,
+        // a network switch). Replace that session rather than sign the device
+        // out. Once the device has used it, this token coming back is reuse.
+        sqlx::query(
+            "update sessions set revoked_at = now()
+             where parent_id = $1 and rotated_at is null and revoked_at is null and access_used_at is null",
+        )
         .bind(&row.id)
         .execute(&mut *tx)
-        .await?;
-    if rotated.rows_affected() != 1 {
+        .await?
+    };
+    if taken.rows_affected() != 1 {
         drop(tx);
         return reuse(s, row).await;
     }
     let issued = session::issue(&s, &mut tx, &user.id, &row.device_id, Some(&row.family), policies.session_days).await?;
+    sqlx::query("update sessions set parent_id = $1 where id = $2").bind(&row.id).bind(&issued.id).execute(&mut *tx).await?;
     sqlx::query("update devices set last_seen_at = now() where id = $1").bind(&row.device_id).execute(&mut *tx).await?;
     sqlx::query("update users set last_active_at = now() where id = $1").bind(&user.id).execute(&mut *tx).await?;
     tx.commit().await?;
+    if row.rotated_at.is_some() {
+        audit::log(&s.db, Event::new("auth.refresh.repeat", Actor::User(&row.user_id)).target(&row.device_id).ip(ip)).await;
+    }
     Ok(ApiJson(Tokens {
         access_token: issued.access.expose().clone(),
         access_expires_at: issued.access_expires_at.timestamp_millis(),

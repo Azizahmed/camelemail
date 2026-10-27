@@ -1,8 +1,9 @@
 //! Devices and sessions: access tokens (15 min) and rotating refresh tokens.
 //!
 //! Each refresh writes a new session row in the same family and marks the old
-//! one rotated. Presenting a rotated refresh token again means it was copied:
-//! the whole family is revoked.
+//! one rotated. Presenting a rotated refresh token again means it was copied,
+//! and the whole family is revoked; unless the session that refresh made was
+//! never used, which means its reply never reached the device (see `refresh`).
 
 use axum::extract::{FromRequestParts, OptionalFromRequestParts};
 use axum::http::request::Parts;
@@ -29,8 +30,10 @@ pub struct AuthCtx {
 
 impl AuthCtx {
     pub async fn from_access(s: &AppState, token: &str) -> AppResult<Self> {
+        // The first use is recorded: it shows the device got the session (see `refresh`).
         let ctx: Option<AuthCtx> = sqlx::query_as(
-            "select s.id as session_id, s.device_id, u.id as user_id, u.org_id, u.role, u.email
+            "with used as (update sessions set access_used_at = now() where access_hash = $1 and access_used_at is null)
+             select s.id as session_id, s.device_id, u.id as user_id, u.org_id, u.role, u.email
              from sessions s
              join devices d on d.id = s.device_id
              join users u on u.id = s.user_id
@@ -109,6 +112,8 @@ pub struct Issued {
     pub access: Redacted<String>,
     pub refresh: Redacted<String>,
     pub access_expires_at: DateTime<Utc>,
+    /// The session row's id.
+    pub id: String,
 }
 
 /// A new session row (a new family unless `family` is given).
@@ -126,11 +131,12 @@ pub async fn issue(
     let access_expires_at = now + Duration::from_std(s.cfg.access_ttl).unwrap_or(Duration::minutes(15));
     let days = i64::from(session_days.clamp(1, 365));
     let family = family.map(String::from).unwrap_or_else(|| remail_proto::new_id("fam"));
+    let id = remail_proto::new_id("ses");
     sqlx::query(
         "insert into sessions (id, device_id, user_id, family, refresh_hash, access_hash, access_expires_at, expires_at)
          values ($1, $2, $3, $4, $5, $6, $7, $8)",
     )
-    .bind(remail_proto::new_id("ses"))
+    .bind(&id)
     .bind(device_id)
     .bind(user_id)
     .bind(family)
@@ -140,7 +146,7 @@ pub async fn issue(
     .bind(now + Duration::days(days))
     .execute(db)
     .await?;
-    Ok(Issued { access, refresh, access_expires_at })
+    Ok(Issued { access, refresh, access_expires_at, id })
 }
 
 /// Signs a device out: its sessions and push token go, and its open notice
