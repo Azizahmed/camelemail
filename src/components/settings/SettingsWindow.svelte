@@ -101,8 +101,14 @@
       if (saving === 0) settings = e.payload;
       applyLanguageSetting(e.payload.language);
     }).then(keep);
-    // Changed on another device.
+    // Changed on another device; a mailbox's sync finished (its status and error may have changed).
+    let accountsTimer: ReturnType<typeof setTimeout> | undefined;
     onEngineEvent((e) => {
+      if (e.type === "syncStatus" && !e.syncing) {
+        clearTimeout(accountsTimer);
+        accountsTimer = setTimeout(() => void loadAccounts(), 300);
+        return;
+      }
       if (e.type !== "settingsChanged") return;
       void reloadSettings();
       void loadUiPrefs().catch(() => {});

@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/remail-proto", "crates/remail-core", "crates/remail-server", "src-tauri"]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.5.2"
 edition = "2021"
 license = "MIT"
 authors = ["Aziz <gotoaziz100@gmail.com>"]

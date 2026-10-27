@@ -487,6 +487,8 @@ const OP_MAX_ATTEMPTS: i64 = 5;
 const SEND_RETRY_DELAYS_MS: [i64; 3] = [60_000, 300_000, 900_000];
 const POLL_BACKOFF_MAX: Duration = Duration::from_secs(300);
 const GRAPH_POLL_MAX: Duration = Duration::from_secs(60);
+/// The first retries after a failed sync that wasn't a refused sign-in.
+const NETWORK_RETRY: Duration = Duration::from_secs(15);
 const IDLE_REFRESH: Duration = Duration::from_secs(25 * 60);
 
 impl Engine {
@@ -3455,13 +3457,17 @@ async fn worker_loop(weak: Weak<Inner>, account_id: String, mut rx: mpsc::Unboun
                     }
                     Err(e) => {
                         let msg = friendly_error(e);
-                        let status = if imap::is_auth_error(e) { AccountStatus::AuthError } else { AccountStatus::Offline };
+                        let auth = imap::is_auth_error(e);
+                        let status = if auth { AccountStatus::AuthError } else { AccountStatus::Offline };
                         tracing::warn!(account = %account.email, "sync failed: {e:#}");
                         let _ = inner.store.set_account_status(&account.id, status, Some(&msg));
                         inner.sink.emit(EngineEvent::SyncStatus { account_id: account.id.clone(), syncing: false, error: Some(msg) });
                         conn = None;
                         empty_polls = (empty_polls + 1).min(8);
-                        next_tick = Instant::now() + (interval * 2u32.pow(empty_polls)).min(poll_max(&account));
+                        // A network blip (a phone's app cut off in the background, a Wi-Fi
+                        // switch) usually passes: try again soon a couple of times first.
+                        let wait = if !auth && empty_polls <= 2 { NETWORK_RETRY } else { (interval * 2u32.pow(empty_polls)).min(poll_max(&account)) };
+                        next_tick = Instant::now() + wait;
                     }
                 }
                 if let Some(reply) = reply {

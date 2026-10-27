@@ -90,13 +90,16 @@
       void invoke("set_system_bars", { dark, background }).catch(() => {});
     };
     bars();
-    // Back in front after a while in the background: check for mail now.
+    // Back in front after a while in the background: check for mail now. At
+    // once if a mailbox failed meanwhile: Android cuts a background app's
+    // network (a browser sign-in is enough), and its next try could be minutes away.
     let hiddenAt = 0;
     const visibility = () => {
       if (document.hidden) hiddenAt = Date.now();
       else {
         dismissStaleTextMenu();
-        if (mail.ready && Date.now() - hiddenAt > 30_000) void api.syncNow().catch(() => {});
+        const failed = mail.accounts.some((a) => a.status !== "active" || mail.syncErrors[a.id]);
+        if (mail.ready && (failed || Date.now() - hiddenAt > 30_000)) void api.syncNow().catch(() => {});
       }
     };
     document.addEventListener("visibilitychange", visibility);
